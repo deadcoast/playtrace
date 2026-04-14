@@ -1,6 +1,6 @@
 # SPEC v2 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Audit status (2026-04-14):** Reviewed against the current source tree and verified with `uv run pytest`, `uv run python -m playtrace --help`, `uv run python -m playtrace sources --help`, and `uv run python -m playtrace doctor --help`. Historical TDD and commit checkpoints are marked complete because the corresponding tests, implementation, and landed history are present in the repo.
 
 **Goal:** Replace the current scaffold-first pipeline with an evidence-first Playtrace v2 that stores raw provenance, derives exact and inferred evidence separately, resolves titles through executable relationships, and exposes that provenance through the CLI.
 
@@ -101,7 +101,7 @@
 - Modify: `playtrace/store/db.py`
 - Test: `tests/test_store_schema.py`
 
-- [ ] **Step 1: Write the failing schema bootstrap test**
+- [x] **Step 1: Write the failing schema bootstrap test**
 
 ```python
 def test_bootstrap_creates_v2_tables(tmp_path: Path) -> None:
@@ -119,12 +119,12 @@ def test_bootstrap_creates_v2_tables(tmp_path: Path) -> None:
     assert {"scan_runs", "artifacts", "evidence_links", "title_executables"} <= names
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_store_schema.py::test_bootstrap_creates_v2_tables -v`
 Expected: FAIL because the v2 provenance tables do not exist yet.
 
-- [ ] **Step 3: Add explicit evidence and scan-run models**
+- [x] **Step 3: Add explicit evidence and scan-run models**
 
 ```python
 @dataclass(slots=True)
@@ -148,7 +148,7 @@ class EvidenceRecord:
     strength: EvidenceStrength
 ```
 
-- [ ] **Step 4: Extend enums for evidence typing and confidence separation**
+- [x] **Step 4: Extend enums for evidence typing and confidence separation**
 
 ```python
 class EvidenceType(str, Enum):
@@ -160,7 +160,7 @@ class EvidenceType(str, Enum):
     IDENTITY = "identity"
 ```
 
-- [ ] **Step 5: Replace the current schema with a provenance-first schema**
+- [x] **Step 5: Replace the current schema with a provenance-first schema**
 
 Add `scan_runs`, `artifacts`, `evidence_links`, and `title_executables`, while keeping `executables`, `sessions`, `titles`, and `mappings`.
 
@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS scan_runs (
 );
 ```
 
-- [ ] **Step 6: Add database methods for scan tracking and raw persistence**
+- [x] **Step 6: Add database methods for scan tracking and raw persistence**
 
 Implement methods such as:
 
@@ -186,12 +186,12 @@ def replace_artifacts_for_scan(self, scan_run_id: str, artifacts: list[RawArtifa
 def replace_evidence_for_scan(self, scan_run_id: str, records: list[EvidenceRecord]) -> None: ...
 ```
 
-- [ ] **Step 7: Run the schema test**
+- [x] **Step 7: Run the schema test**
 
 Run: `uv run pytest tests/test_store_schema.py -v`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add playtrace/models/evidence.py playtrace/models/scan_run.py playtrace/models/enums.py playtrace/store/schema.py playtrace/store/db.py tests/test_store_schema.py
@@ -208,7 +208,7 @@ git commit -m "feat: add provenance-first v2 storage"
 - Modify: `playtrace/services/scanner.py`
 - Test: `tests/test_security_log_pipeline.py`
 
-- [ ] **Step 1: Write the failing pipeline test**
+- [x] **Step 1: Write the failing pipeline test**
 
 ```python
 def test_scan_pipeline_stores_raw_artifacts_before_sessions(tmp_path: Path) -> None:
@@ -223,12 +223,12 @@ def test_scan_pipeline_stores_raw_artifacts_before_sessions(tmp_path: Path) -> N
         assert conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] >= 1
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_security_log_pipeline.py::test_scan_pipeline_stores_raw_artifacts_before_sessions -v`
 Expected: FAIL because `ScannerService.run()` is still unimplemented.
 
-- [ ] **Step 3: Split collector and parser contracts**
+- [x] **Step 3: Split collector and parser contracts**
 
 Replace the single parser-only contract with separate protocols:
 
@@ -244,7 +244,7 @@ class EvidenceParser(Protocol):
     def parse(self, artifacts: Sequence[RawArtifact]) -> list[EvidenceRecord]: ...
 ```
 
-- [ ] **Step 4: Add a Security Log collector in `playtrace/ingest/security_log.py`**
+- [x] **Step 4: Add a Security Log collector in `playtrace/ingest/security_log.py`**
 
 Start with fixture-driven collection so the pipeline works before native Windows integration. Return `RawArtifact` payloads shaped like:
 
@@ -258,7 +258,7 @@ Start with fixture-driven collection so the pipeline works before native Windows
 }
 ```
 
-- [ ] **Step 5: Update the orchestrator to collect raw artifacts, parse evidence, and persist both**
+- [x] **Step 5: Update the orchestrator to collect raw artifacts, parse evidence, and persist both**
 
 `IngestResult` should carry both `artifacts` and `evidence`.
 
@@ -270,7 +270,7 @@ class IngestResult:
     warnings: list[str]
 ```
 
-- [ ] **Step 6: Implement `ScannerService.run()` as the top-level persistence coordinator**
+- [x] **Step 6: Implement `ScannerService.run()` as the top-level persistence coordinator**
 
 Responsibilities:
 - create scan run
@@ -280,12 +280,12 @@ Responsibilities:
 - call downstream normalization and merge code only after evidence is stored
 - finish the scan run with warnings
 
-- [ ] **Step 7: Run the pipeline test**
+- [x] **Step 7: Run the pipeline test**
 
 Run: `uv run pytest tests/test_security_log_pipeline.py -v`
 Expected: PASS for raw artifact persistence.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add playtrace/parsers/base.py playtrace/ingest/orchestrator.py playtrace/ingest/registry.py playtrace/ingest/security_log.py playtrace/services/scanner.py tests/test_security_log_pipeline.py
@@ -304,23 +304,23 @@ git commit -m "feat: split raw collection from evidence parsing"
 - Modify: `tests/test_merge_sessions.py`
 - Create: `tests/fixtures/security_log/events.json`
 
-- [ ] **Step 1: Write failing normalization and session-pairing tests**
+- [x] **Step 1: Write failing normalization and session-pairing tests**
 
 ```python
 def test_identity_normalizer_merges_case_only_path_variants() -> None: ...
 def test_session_merger_pairs_4688_and_4689_by_pid() -> None: ...
 ```
 
-- [ ] **Step 2: Run those tests to verify they fail**
+- [x] **Step 2: Run those tests to verify they fail**
 
 Run: `uv run pytest tests/test_identity.py tests/test_merge_sessions.py -v`
 Expected: FAIL because the current normalizer and merger are stub-level.
 
-- [ ] **Step 3: Upgrade the security parser to emit semantic evidence**
+- [x] **Step 3: Upgrade the security parser to emit semantic evidence**
 
 Map raw 4688 events to `process_start` evidence and 4689 events to `process_exit` evidence. Preserve PID, parent PID, executable path, command line, and SID.
 
-- [ ] **Step 4: Replace the soft hash-only identity builder with path-aware normalization**
+- [x] **Step 4: Replace the soft hash-only identity builder with path-aware normalization**
 
 Support:
 - lowercase and slash normalization
@@ -338,11 +338,11 @@ def build_key(self, evidence: EvidenceRecord) -> str:
     return f"soft:{digest}"
 ```
 
-- [ ] **Step 5: Implement exact session pairing in `playtrace/merge/sessions.py`**
+- [x] **Step 5: Implement exact session pairing in `playtrace/merge/sessions.py`**
 
 Pair `process_start` and `process_exit` records by `(pid, normalized_exe, user_sid)` and emit exact sessions when both exist. Emit partial sessions when only a start exists.
 
-- [ ] **Step 6: Preserve provenance on each session**
+- [x] **Step 6: Preserve provenance on each session**
 
 Ensure each `SessionRecord` stores:
 - exact or estimated runtime confidence
@@ -350,12 +350,12 @@ Ensure each `SessionRecord` stores:
 - parent chain
 - raw artifact or evidence IDs needed for inspection
 
-- [ ] **Step 7: Run the identity and merge tests**
+- [x] **Step 7: Run the identity and merge tests**
 
 Run: `uv run pytest tests/test_identity.py tests/test_merge_sessions.py -v`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add playtrace/parsers/security_log.py playtrace/normalize/identity.py playtrace/merge/sessions.py playtrace/models/executable.py playtrace/models/session.py tests/test_identity.py tests/test_merge_sessions.py tests/fixtures/security_log/events.json
@@ -376,7 +376,7 @@ git commit -m "feat: add exact session pairing and executable normalization"
 - Create: `tests/fixtures/amcache/sample.json`
 - Modify: `tests/test_classification.py`
 
-- [ ] **Step 1: Write fixture-driven parser tests for Prefetch, UserAssist, and AmCache**
+- [x] **Step 1: Write fixture-driven parser tests for Prefetch, UserAssist, and AmCache**
 
 ```python
 def test_prefetch_parser_emits_execution_count_evidence() -> None: ...
@@ -384,16 +384,16 @@ def test_userassist_parser_emits_interactive_launch_and_focus() -> None: ...
 def test_amcache_parser_emits_identity_evidence() -> None: ...
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_classification.py -v`
 Expected: FAIL until the supporting-source parsers emit evidence records.
 
-- [ ] **Step 3: Implement raw collectors for these sources**
+- [x] **Step 3: Implement raw collectors for these sources**
 
 Each collector should load source-native fixture payloads first, then allow native Windows collection later without changing downstream parser contracts.
 
-- [ ] **Step 4: Parse these sources into explicit evidence types**
+- [x] **Step 4: Parse these sources into explicit evidence types**
 
 Examples:
 
@@ -404,19 +404,19 @@ EvidenceType.FOREGROUND_USAGE
 EvidenceType.IDENTITY
 ```
 
-- [ ] **Step 5: Assign source strength without faking runtime precision**
+- [x] **Step 5: Assign source strength without faking runtime precision**
 
 Use:
 - Prefetch -> `STRONG`
 - UserAssist -> `INTERACTIVE`
 - AmCache -> `STRONG` for identity only
 
-- [ ] **Step 6: Run the parser tests**
+- [x] **Step 6: Run the parser tests**
 
 Run: `uv run pytest tests/test_classification.py -v`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add playtrace/ingest/prefetch.py playtrace/ingest/userassist.py playtrace/ingest/amcache.py playtrace/parsers/prefetch.py playtrace/parsers/userassist.py playtrace/parsers/amcache.py tests/test_classification.py tests/fixtures/prefetch/sample.json tests/fixtures/userassist/sample.json tests/fixtures/amcache/sample.json
@@ -436,7 +436,7 @@ git commit -m "feat: ingest prefetch userassist and amcache evidence"
 - Modify: `playtrace/services/mapper.py`
 - Create: `tests/test_title_resolution.py`
 
-- [ ] **Step 1: Write failing title-resolution tests**
+- [x] **Step 1: Write failing title-resolution tests**
 
 ```python
 def test_launcher_child_rule_prefers_longest_lived_game_process() -> None: ...
@@ -444,18 +444,18 @@ def test_manual_mapping_overrides_metadata_fallback() -> None: ...
 def test_helper_process_is_suppressed_from_primary_title() -> None: ...
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_title_resolution.py -v`
 Expected: FAIL because title aggregation currently groups by product name or filename only.
 
-- [ ] **Step 3: Expand classification outputs**
+- [x] **Step 3: Expand classification outputs**
 
 Add support for:
 - primary bucket: `game`, `launcher`, `helper`, `runtime`, `overlay`, `system`, `unknown`
 - subtype: `anti_cheat`, `crash_reporter`, `updater`, `browser_wrapper`, `installer`
 
-- [ ] **Step 4: Implement relationship-aware title resolution**
+- [x] **Step 4: Implement relationship-aware title resolution**
 
 Rules:
 - prefer the longest-lived launcher child
@@ -467,20 +467,20 @@ Rules:
 def resolve_title(executable: ExecutableIdentity, related_sessions: list[SessionRecord]) -> ResolvedTitle: ...
 ```
 
-- [ ] **Step 5: Separate metric confidence from evidence strength**
+- [x] **Step 5: Separate metric confidence from evidence strength**
 
 Ensure `runtime_confidence`, `launches_confidence`, `classification_confidence`, and `title_confidence` are computed independently instead of reusing a single enum everywhere.
 
-- [ ] **Step 6: Update `MapperService` to persist durable overrides**
+- [x] **Step 6: Update `MapperService` to persist durable overrides**
 
 Manual mappings must target normalized executable identities and survive rebuilds from stored artifacts.
 
-- [ ] **Step 7: Run title-resolution tests**
+- [x] **Step 7: Run title-resolution tests**
 
 Run: `uv run pytest tests/test_title_resolution.py tests/test_classification.py -v`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add playtrace/classify/rules.py playtrace/classify/heuristics.py playtrace/classify/resolver.py playtrace/merge/titles.py playtrace/merge/confidence.py playtrace/models/title.py playtrace/models/mapping.py playtrace/services/mapper.py tests/test_title_resolution.py tests/test_classification.py
@@ -505,7 +505,7 @@ git commit -m "feat: restore title resolution and mapping logic"
 - Create: `tests/test_sources_command.py`
 - Create: `tests/test_inspect_view.py`
 
-- [ ] **Step 1: Write failing output tests**
+- [x] **Step 1: Write failing output tests**
 
 ```python
 def test_report_does_not_seed_demo_data(tmp_path: Path) -> None: ...
@@ -513,16 +513,16 @@ def test_sources_view_lists_source_specific_evidence() -> None: ...
 def test_inspect_view_shows_confidence_and_parent_chain() -> None: ...
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_report_render.py tests/test_sources_command.py tests/test_inspect_view.py -v`
 Expected: FAIL because `report` still seeds demo data and there is no `sources` command yet.
 
-- [ ] **Step 3: Remove demo-data seeding from `ReporterService`**
+- [x] **Step 3: Remove demo-data seeding from `ReporterService`**
 
 Change `render_default()` to query persisted aggregates only. If the database is empty, render a clear guidance state instead of synthetic rows.
 
-- [ ] **Step 4: Add the `sources` command and service**
+- [x] **Step 4: Add the `sources` command and service**
 
 Command shape:
 
@@ -534,7 +534,7 @@ def sources(
 ) -> None: ...
 ```
 
-- [ ] **Step 5: Make `inspect` explain provenance**
+- [x] **Step 5: Make `inspect` explain provenance**
 
 `InspectorService` and `render/source_views.py` should show:
 - exact vs inferred metrics
@@ -543,12 +543,12 @@ def sources(
 - mapping source
 - confidence reasoning
 
-- [ ] **Step 6: Run the reporting and provenance tests**
+- [x] **Step 6: Run the reporting and provenance tests**
 
 Run: `uv run pytest tests/test_report_render.py tests/test_sources_command.py tests/test_inspect_view.py -v`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add playtrace/cli/cmd_sources.py playtrace/services/sources.py playtrace/render/source_views.py playtrace/cli/app.py playtrace/cli/common.py playtrace/services/reporter.py playtrace/services/inspector.py playtrace/render/report_views.py playtrace/render/tables.py playtrace/render/cards.py playtrace/render/timeline.py tests/test_report_render.py tests/test_sources_command.py tests/test_inspect_view.py
@@ -567,7 +567,7 @@ git commit -m "feat: add provenance-aware reporting and sources command"
 - Create: `tests/fixtures/bam/sample.json`
 - Create: `tests/test_doctor.py`
 
-- [ ] **Step 1: Write failing SRUM/BAM and doctor tests**
+- [x] **Step 1: Write failing SRUM/BAM and doctor tests**
 
 ```python
 def test_srum_parser_emits_activity_windows() -> None: ...
@@ -575,16 +575,16 @@ def test_bam_parser_emits_weak_execution_evidence() -> None: ...
 def test_doctor_reports_exact_runtime_coverage_expectations() -> None: ...
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_doctor.py -v`
 Expected: FAIL until the parsers and doctor service are implemented.
 
-- [ ] **Step 3: Add SRUM and BAM collectors and parsers**
+- [x] **Step 3: Add SRUM and BAM collectors and parsers**
 
 Keep them downstream of the same raw-artifact and evidence pipeline. SRUM should emit activity windows and optional network usage; BAM should emit weak execution hints only.
 
-- [ ] **Step 4: Upgrade `DoctorService` from environment check to coverage explainer**
+- [x] **Step 4: Upgrade `DoctorService` from environment check to coverage explainer**
 
 Doctor output should answer:
 - are security logs available for exact runtime
@@ -592,12 +592,12 @@ Doctor output should answer:
 - what confidence tiers the user should expect
 - what evidence is missing
 
-- [ ] **Step 5: Run the doctor test suite**
+- [x] **Step 5: Run the doctor test suite**
 
 Run: `uv run pytest tests/test_doctor.py -v`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add playtrace/ingest/srum.py playtrace/ingest/bam.py playtrace/parsers/srum.py playtrace/parsers/bam.py playtrace/services/doctor.py tests/test_doctor.py tests/fixtures/srum/sample.csv tests/fixtures/bam/sample.json
@@ -622,26 +622,26 @@ git commit -m "feat: add srum bam and coverage-focused doctor output"
 - Test: `tests/test_inspect_view.py`
 - Test: `tests/test_doctor.py`
 
-- [ ] **Step 1: Add one rebuildability test**
+- [x] **Step 1: Add one rebuildability test**
 
 ```python
 def test_titles_can_be_rebuilt_from_artifacts_and_mappings(tmp_path: Path) -> None:
     ...
 ```
 
-- [ ] **Step 2: Run that test to verify it fails**
+- [x] **Step 2: Run that test to verify it fails**
 
 Run: `uv run pytest tests/test_store_schema.py::test_titles_can_be_rebuilt_from_artifacts_and_mappings -v`
 Expected: FAIL until rebuild logic exists.
 
-- [ ] **Step 3: Implement rebuild-only aggregate flows**
+- [x] **Step 3: Implement rebuild-only aggregate flows**
 
 Ensure the scanner and storage layer can:
 - clear derived tables safely
 - rebuild executables, sessions, and titles from persisted artifacts plus mappings
 - avoid relying on demo data or one-shot in-memory state
 
-- [ ] **Step 4: Update `README.md` with the v2 data model and commands**
+- [x] **Step 4: Update `README.md` with the v2 data model and commands**
 
 Document:
 - raw evidence persistence
@@ -649,12 +649,12 @@ Document:
 - `sources` and `inspect`
 - fixture-driven tests
 
-- [ ] **Step 5: Run the full test suite**
+- [x] **Step 5: Run the full test suite**
 
 Run: `uv run pytest`
 Expected: PASS with non-zero collected tests.
 
-- [ ] **Step 6: Smoke-test the CLI**
+- [x] **Step 6: Smoke-test the CLI**
 
 Run:
 - `uv run python -m playtrace --help`
@@ -663,7 +663,7 @@ Run:
 
 Expected: all commands exit 0 and list the v2 command surface.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add playtrace/store/db.py playtrace/store/repositories.py playtrace/services/scanner.py README.md tests
@@ -677,3 +677,4 @@ git commit -m "feat: finalize rebuildable playtrace v2 pipeline"
 - Do not let weaker evidence overwrite exact Security Log sessions.
 - Keep each task independently reviewable and runnable.
 - If a task reveals missing architecture, update `docs/spec-v2-diff.md` before continuing implementation.
+

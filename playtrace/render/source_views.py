@@ -44,11 +44,22 @@ def render_inspection(console: Console, theme: Theme, detail: InspectionDetail) 
         style=theme.text,
     )
     body.append(
+        "Evidence source counts: "
+        f"{detail.evidence_source_counts if detail.evidence_source_counts else 'none'}\n",
+        style=theme.text,
+    )
+    body.append(
         f"Evidence ids: {', '.join(detail.evidence_ids) if detail.evidence_ids else 'none'}\n",
         style=theme.text,
     )
     body.append(
-        f"Parent chains: {detail.parent_chains if detail.parent_chains else 'none'}",
+        f"Parent chains: {detail.parent_chains if detail.parent_chains else 'none'}\n",
+        style=theme.text,
+    )
+    body.append(f"Mapping source: {detail.mapping_source}\n", style=theme.text)
+    body.append(
+        "Confidence reasoning: "
+        f"{' | '.join(detail.confidence_reasoning) if detail.confidence_reasoning else 'none'}",
         style=theme.text,
     )
     console.print(Panel(body, border_style=theme.accent))

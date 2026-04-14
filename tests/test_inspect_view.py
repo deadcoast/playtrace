@@ -70,6 +70,24 @@ def test_inspect_view_shows_confidence_and_parent_chain(tmp_path: Path) -> None:
                 json.dumps([]),
             ),
         )
+        conn.execute(
+            """
+            INSERT INTO mappings (
+                mapping_id, target, title, classification, launcher,
+                ignore, created_at, confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "mapping:1",
+                "path:d:\\steamlibrary\\steamapps\\common\\elden ring\\game\\eldenring.exe",
+                "ELDEN RING",
+                "game",
+                "Steam",
+                0,
+                "2026-04-11T18:00:00+00:00",
+                "high",
+            ),
+        )
         conn.commit()
 
     detail = InspectorService().load(
@@ -85,7 +103,11 @@ def test_inspect_view_shows_confidence_and_parent_chain(tmp_path: Path) -> None:
     assert detail.runtime_confidence == "exact"
     assert detail.parent_chains == [["steam.exe"]]
     assert detail.evidence_sources == ["security_log"]
+    assert detail.evidence_source_counts == {"security_log": 1}
     assert detail.evidence_ids == ["evidence:end", "evidence:start"]
+    assert detail.mapping_source == "manual"
+    assert any("exact runtime" in line.lower() for line in detail.confidence_reasoning)
+    assert any("manual mapping" in line.lower() for line in detail.confidence_reasoning)
 
 
 def test_inspect_view_accepts_raw_executable_paths(tmp_path: Path) -> None:
