@@ -1,0 +1,19 @@
+[
+  {
+    "event_id": 4688,
+    "timestamp": "2026-04-11T18:42:03+00:00",
+    "pid": 15320,
+    "parent_pid": 9012,
+    "exe_path": "D:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe",
+    "command_line": "\"D:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe\"",
+    "user_sid": "S-1-5-21-demo"
+  },
+  {
+    "event_id": 4689,
+    "timestamp": "2026-04-11T18:52:03+00:00",
+    "pid": 15320,
+    "parent_pid": 9012,
+    "exe_path": "d:\\steamlibrary\\steamapps\\common\\elden ring\\game\\ELDENRING.EXE",
+    "user_sid": "S-1-5-21-demo"
+  }
+]

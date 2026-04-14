@@ -30,11 +30,13 @@ class TitleAggregate:
     classification_confidence: ConfidenceLevel
     title_confidence: ConfidenceLevel
     launcher: str | None
+    primary_exe_id: str | None = None
     runtime: RuntimeStats = field(default_factory=RuntimeStats)
     launches: LaunchStats = field(default_factory=LaunchStats)
     first_seen: datetime | None = None
     last_seen: datetime | None = None
     executable_ids: list[str] = field(default_factory=list)
+    suppressed_executable_ids: list[str] = field(default_factory=list)
     evidence_sources: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)

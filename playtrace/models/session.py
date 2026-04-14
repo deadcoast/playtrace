@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from playtrace.models.enums import ConfidenceLevel
+from playtrace.models.enums import RuntimeConfidence
 
 
 @dataclass(slots=True)
@@ -18,7 +18,8 @@ class SessionRecord:
     foreground_seconds: int = 0
     bytes_in: int = 0
     bytes_out: int = 0
-    confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
+    confidence: RuntimeConfidence = RuntimeConfidence.UNKNOWN
     evidence_sources: list[str] = field(default_factory=list)
+    evidence_ids: list[str] = field(default_factory=list)
     parent_chain: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
