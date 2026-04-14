@@ -1,46 +1,60 @@
 from __future__ import annotations
 
+from playtrace.classify.resolver import TitleResolver
+from playtrace.merge.confidence import launches_confidence
+from playtrace.models.enums import ConfidenceLevel
 from playtrace.models.executable import ExecutableIdentity
+from playtrace.models.mapping import UserMapping
 from playtrace.models.session import SessionRecord
-from playtrace.models.title import LaunchStats, RuntimeStats, TitleAggregate
-from playtrace.models.enums import Classification, ConfidenceLevel
+from playtrace.models.title import TitleAggregate
 
 
 class TitleAggregator:
-    def build(self, executables: list[ExecutableIdentity], sessions: list[SessionRecord]) -> list[TitleAggregate]:
-        title_map: dict[str, TitleAggregate] = {}
+    def __init__(self, resolver: TitleResolver | None = None) -> None:
+        self.resolver = resolver or TitleResolver()
 
-        for exe in executables:
-            title_name = exe.product_name or (exe.filename.rsplit(".", 1)[0] if exe.filename else exe.exe_id)
-            title_id = f"title:{title_name.lower().replace(' ', '_')}"
-            title = title_map.setdefault(
-                title_id,
-                TitleAggregate(
-                    title_id=title_id,
-                    title=title_name,
-                    classification=exe.classification or Classification.UNKNOWN,
-                    classification_confidence=exe.classification_confidence or ConfidenceLevel.UNKNOWN,
-                    title_confidence=ConfidenceLevel.MEDIUM,
-                    launcher=None,
-                ),
+    def build(
+        self,
+        executables: list[ExecutableIdentity],
+        sessions: list[SessionRecord],
+        mappings: list[UserMapping] | None = None,
+    ) -> list[TitleAggregate]:
+        aggregates: list[TitleAggregate] = []
+        for resolved in self.resolver.resolve(executables, sessions, mappings):
+            title = TitleAggregate(
+                title_id=resolved.title_id,
+                title=resolved.title,
+                classification=resolved.classification,
+                classification_confidence=resolved.classification_confidence,
+                title_confidence=resolved.title_confidence,
+                launcher=resolved.launcher,
+                primary_exe_id=resolved.primary_exe_id,
+                executable_ids=list(resolved.executable_ids),
+                suppressed_executable_ids=list(resolved.suppressed_executable_ids),
             )
-            title.executable_ids.append(exe.exe_id)
-            if exe.first_seen and (title.first_seen is None or exe.first_seen < title.first_seen):
-                title.first_seen = exe.first_seen
-            if exe.last_seen and (title.last_seen is None or exe.last_seen > title.last_seen):
-                title.last_seen = exe.last_seen
 
-        for session in sessions:
-            for title in title_map.values():
-                if session.exe_id in title.executable_ids:
-                    if session.duration_seconds:
-                        title.runtime.confirmed_seconds += session.duration_seconds
-                    title.runtime.foreground_seconds += session.foreground_seconds
-                    title.launches.confirmed += 1
-                    break
+            related_sessions = [
+                session for session in sessions if session.exe_id in resolved.executable_ids
+            ]
+            for session in related_sessions:
+                if session.duration_seconds:
+                    title.runtime.confirmed_seconds += session.duration_seconds
+                title.runtime.foreground_seconds += session.foreground_seconds
+                title.launches.confirmed += 1
+                title.evidence_sources.extend(session.evidence_sources)
+                if title.first_seen is None or (
+                    session.started_at and session.started_at < title.first_seen
+                ):
+                    title.first_seen = session.started_at
+                session_end = session.ended_at or session.started_at
+                if title.last_seen is None or (session_end and session_end > title.last_seen):
+                    title.last_seen = session_end
 
-        for title in title_map.values():
-            title.runtime.confidence = ConfidenceLevel.HIGH if title.runtime.confirmed_seconds else ConfidenceLevel.UNKNOWN
-            title.launches.confidence = ConfidenceLevel.HIGH if title.launches.confirmed else ConfidenceLevel.UNKNOWN
+            title.evidence_sources = sorted(set(title.evidence_sources))
+            title.runtime.confidence = (
+                ConfidenceLevel.HIGH if title.runtime.confirmed_seconds else ConfidenceLevel.UNKNOWN
+            )
+            title.launches.confidence = launches_confidence(related_sessions)
+            aggregates.append(title)
 
-        return list(title_map.values())
+        return aggregates

@@ -2,21 +2,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, Sequence
 
-from playtrace.models.artifacts import ArtifactRecord
+from playtrace.models.evidence import EvidenceRecord, RawArtifact
 
 
 @dataclass(slots=True)
-class ParseContext:
+class CollectContext:
+    scan_run_id: str
     host_name: str
     temp_dir: Path
     full_scan: bool = False
 
 
-class ArtifactParser(Protocol):
+class RawCollector(Protocol):
     name: str
 
     def is_available(self) -> bool: ...
 
-    def parse(self, context: ParseContext) -> list[ArtifactRecord]: ...
+    def collect(self, context: CollectContext) -> list[RawArtifact]: ...
+
+
+class EvidenceParser(Protocol):
+    name: str
+
+    def parse(self, artifacts: Sequence[RawArtifact]) -> list[EvidenceRecord]: ...

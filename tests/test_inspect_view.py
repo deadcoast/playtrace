@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from playtrace.services.inspector import InspectRequest, InspectorService
+from playtrace.store.db import Database
+
+
+def test_inspect_view_shows_confidence_and_parent_chain(tmp_path: Path) -> None:
+    db_path = tmp_path / "playtrace.db"
+    db = Database(db_path)
+    db.bootstrap()
+
+    with db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO titles (
+                title_id, title, classification, classification_confidence, title_confidence,
+                launcher, confirmed_seconds, estimated_seconds, foreground_seconds,
+                runtime_confidence, launches_confirmed, launches_inferred, launches_gui,
+                launches_confidence, first_seen, last_seen, evidence_sources, tags, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "title:elden_ring",
+                "ELDEN RING",
+                "game",
+                "high",
+                "high",
+                "Steam",
+                600,
+                0,
+                0,
+                "exact",
+                1,
+                0,
+                0,
+                "high",
+                None,
+                None,
+                json.dumps(["security_log"]),
+                json.dumps([]),
+                json.dumps([]),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO sessions (
+                session_id, title_id, exe_id, user_sid, started_at, ended_at,
+                duration_seconds, foreground_seconds, bytes_in, bytes_out,
+                confidence, evidence_sources, parent_chain, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "session:1",
+                "title:elden_ring",
+                "path:d:\\steamlibrary\\steamapps\\common\\elden ring\\game\\eldenring.exe",
+                "S-1-5-21-demo",
+                "2026-04-11T18:42:03+00:00",
+                "2026-04-11T18:52:03+00:00",
+                600,
+                0,
+                0,
+                0,
+                "exact",
+                json.dumps(["security_log"]),
+                json.dumps(["steam.exe"]),
+                json.dumps([]),
+            ),
+        )
+        conn.commit()
+
+    detail = InspectorService().load(
+        InspectRequest(
+            db_path=db_path,
+            theme="mono",
+            density="comfortable",
+            target="ELDEN RING",
+        )
+    )
+
+    assert detail.title == "ELDEN RING"
+    assert detail.runtime_confidence == "exact"
+    assert detail.parent_chains == [["steam.exe"]]
+    assert detail.evidence_sources == ["security_log"]

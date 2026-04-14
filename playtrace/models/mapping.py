@@ -15,4 +15,5 @@ class UserMapping:
     launcher: str | None
     ignore: bool
     created_at: datetime
+    normalized_key: str | None = None
     confidence: ConfidenceLevel = ConfidenceLevel.HIGH

@@ -44,7 +44,6 @@ class ReporterService:
     def render_default(self, request: ReportRequest) -> None:
         db = Database(request.db_path)
         db.bootstrap()
-        db.seed_demo_data()
         snapshot = db.load_snapshot(limit=request.limit)
 
         console = build_console()
