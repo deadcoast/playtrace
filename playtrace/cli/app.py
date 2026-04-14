@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 
 from playtrace.cli.cmd_doctor import register_doctor
@@ -10,12 +12,36 @@ from playtrace.cli.cmd_report import register_report
 from playtrace.cli.cmd_scan import register_scan
 from playtrace.cli.cmd_sessions import register_sessions
 from playtrace.cli.cmd_titles import register_titles
+from playtrace.services.doctor import DoctorRequest, DoctorService
+from playtrace.services.reporter import ReportRequest, ReporterService
 
 app = typer.Typer(
     help="Native Windows executable history and session analysis.",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
+
+
+@app.command("doctor")
+def doctor(
+    db: Path = typer.Option(Path("playtrace.db"), "--db", help="Path to the playtrace SQLite database."),
+    theme: str = typer.Option("midnight", "--theme", help="Theme name: midnight, amber, ice, mono."),
+) -> None:
+    """Check local environment and data-source availability."""
+    request = DoctorRequest(db_path=db, theme=theme)
+    DoctorService().render(request)
+
+
+@app.command("report")
+def report(
+    db: Path = typer.Option(Path("playtrace.db"), "--db", help="Path to the playtrace SQLite database."),
+    theme: str = typer.Option("midnight", "--theme", help="Theme name: midnight, amber, ice, mono."),
+    density: str = typer.Option("comfortable", "--density", help="Density mode: compact, comfortable, cinematic."),
+    limit: int = typer.Option(10, "--limit", min=1, help="Number of top titles to display."),
+) -> None:
+    """Render the default playtrace dashboard."""
+    request = ReportRequest(db_path=db, theme=theme, density=density, limit=limit)
+    ReporterService().render_default(request)
 
 register_scan(app)
 register_report(app)

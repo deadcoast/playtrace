@@ -20,3 +20,7 @@ THEMES: dict[str, Theme] = {
     "ice": Theme("ice", "bright_cyan", "green", "yellow", "red", "bright_black", "white"),
     "mono": Theme("mono", "white", "white", "white", "white", "bright_black", "white"),
 }
+
+
+def get_theme(name: str) -> Theme:
+    return THEMES.get(name, THEMES["midnight"])
