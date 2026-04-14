@@ -10,7 +10,6 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from playtrace.parsers.security_log import SecurityLogParser
 from playtrace.render.console import build_console
 from playtrace.render.theme import get_theme
 from playtrace.store.db import Database
@@ -34,7 +33,6 @@ class DoctorService:
     def load(self, request: DoctorRequest) -> DoctorSnapshot:
         db = Database(request.db_path)
         db.bootstrap()
-        parser = SecurityLogParser()
 
         with db.connect() as conn:
             rows = conn.execute(
@@ -74,12 +72,7 @@ class DoctorService:
             "Database": str(request.db_path.resolve()),
             "Prefetch dir": self._exists(r"C:\Windows\Prefetch"),
             "SRUM DB": self._exists(r"C:\Windows\System32\sru\SRUDB.dat"),
-<<<<<<< HEAD
-            "Security log parser": "ready" if parser.is_available() else "unavailable",
-            "Sessions in DB": str(db.count_sessions()),
-=======
             "Exact runtime support": exact_runtime_support,
->>>>>>> 5826d2c01e206f624bf2fa0731bedd097ed65711
         }
 
         return DoctorSnapshot(
