@@ -18,7 +18,9 @@ class ExecutableIdentity:
     signer: str | None
     company_name: str | None
     sha1: str | None
+    canonical_path: str | None = None
     classification: Classification = Classification.UNKNOWN
+    classification_subtype: str | None = None
     classification_confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
     ignored: bool = False
     first_seen: datetime | None = None

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 
 from playtrace.cli.cmd_doctor import register_doctor
@@ -11,11 +9,15 @@ from playtrace.cli.cmd_map import register_map
 from playtrace.cli.cmd_report import register_report
 from playtrace.cli.cmd_scan import register_scan
 from playtrace.cli.cmd_sessions import register_sessions
+from playtrace.cli.cmd_sources import register_sources
 from playtrace.cli.cmd_titles import register_titles
+<<<<<<< HEAD
 
 from playtrace.services.doctor import DoctorRequest, DoctorService
 from playtrace.services.reporter import ReportRequest, ReporterService
 from playtrace.services.scanner import ScanRequest, ScannerService
+=======
+>>>>>>> 5826d2c01e206f624bf2fa0731bedd097ed65711
 
 app = typer.Typer(
     help="Native Windows executable history and session analysis.",
@@ -23,6 +25,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
+<<<<<<< HEAD
 
 @app.command("doctor")
 def doctor(
@@ -71,11 +74,14 @@ def report(
     request = ReportRequest(db_path=db, theme=theme, density=density, limit=limit)
     ReporterService().render_default(request)
 
+=======
+>>>>>>> 5826d2c01e206f624bf2fa0731bedd097ed65711
 register_scan(app)
 register_report(app)
 register_titles(app)
 register_sessions(app)
 register_inspect(app)
+register_sources(app)
 register_map(app)
 register_doctor(app)
 register_export(app)

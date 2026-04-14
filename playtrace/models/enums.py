@@ -31,8 +31,25 @@ class SourceName(str, Enum):
     BAM = "bam"
 
 
+class EvidenceType(str, Enum):
+    PROCESS_START = "process_start"
+    PROCESS_EXIT = "process_exit"
+    EXECUTION_COUNT = "execution_count"
+    RECENT_EXECUTION = "recent_execution"
+    INTERACTIVE_LAUNCH = "interactive_launch"
+    FOREGROUND_USAGE = "foreground_usage"
+    ACTIVITY_WINDOW = "activity_window"
+    IDENTITY = "identity"
+
+
 class ConfidenceLevel(str, Enum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
+    UNKNOWN = "unknown"
+
+
+class RuntimeConfidence(str, Enum):
+    EXACT = "exact"
+    ESTIMATED = "estimated"
     UNKNOWN = "unknown"
