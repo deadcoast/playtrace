@@ -4,7 +4,19 @@ This file tracks outstanding work only. Completed work is moved to [docs/CHANGEL
 
 ## OPEN
 
-- None currently.
+[REQUIRES-DEVELOPMENT]
+- playtrace\normalize\metadata.py
+- playtrace\normalize\pathing.py
+- playtrace\config\loader.py
+- playtrace\config\models.py
+- playtrace\store\migrations.py
+- playtrace\store\repositories.py
+- playtrace\utils\clock.py
+- playtrace\utils\hashing.py
+- playtrace\utils\platform.py
+
+[ERRORS]
+- docs\ERRORS.json
 
 ## FINISHED
 

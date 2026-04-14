@@ -677,4 +677,3 @@ git commit -m "feat: finalize rebuildable playtrace v2 pipeline"
 - Do not let weaker evidence overwrite exact Security Log sessions.
 - Keep each task independently reviewable and runnable.
 - If a task reveals missing architecture, update `docs/spec-v2-diff.md` before continuing implementation.
-

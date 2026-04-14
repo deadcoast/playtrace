@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Source ingestion and parsing coverage for Security Log, Prefetch, UserAssist, AmCache, SRUM, and BAM.
 - CLI support for `sources`, expanded provenance-aware `inspect`, and coverage-aware `doctor`.
 - Regression coverage and fixtures for classification, session rebuilding, title resolution, inspect behavior, schema persistence, and source views.
+- Exact Security Log session pairing and executable normalization for stable path/hash-based identities.
+- Rebuildable executable, session, and title aggregation from persisted artifacts plus user mappings.
 
 ### Changed
 
@@ -23,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scan run timestamps are now stored in UTC with explicit offsets.
 - Executable rebuild typing now uses `ExecutableIdentity` directly instead of generic object storage.
 - Security Log sample command line formatting now matches normal quoted Windows paths.
+- `report` now renders persisted data only and no longer seeds demo rows.
+- `inspect` now shows evidence source counts, mapping provenance, launcher parent chains, and confidence reasoning.
+- `doctor` now explains expected runtime-confidence coverage from ingested evidence instead of acting as a simple environment check.
 
 ### Fixed
 
@@ -33,3 +38,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session id generation no longer collides when timestamps are missing.
 - Ignore mappings now suppress matching executables during title resolution.
 - Malformed PID values no longer abort session merging.
+- Path-based manual mappings now survive rebuilds and apply during title resolution.
