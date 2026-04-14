@@ -44,6 +44,10 @@ def render_inspection(console: Console, theme: Theme, detail: InspectionDetail) 
         style=theme.text,
     )
     body.append(
+        f"Evidence ids: {', '.join(detail.evidence_ids) if detail.evidence_ids else 'none'}\n",
+        style=theme.text,
+    )
+    body.append(
         f"Parent chains: {detail.parent_chains if detail.parent_chains else 'none'}",
         style=theme.text,
     )

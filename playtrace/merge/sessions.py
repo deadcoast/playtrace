@@ -51,9 +51,7 @@ class SessionMerger:
         return sessions
 
     def _pair_key(self, record: EvidenceRecord) -> tuple[int | None, str | None, str]:
-        pid = record.value.get("pid")
-        if pid is not None:
-            pid = int(pid)
+        pid = self._pid_value(record)
         user_sid = record.value.get("user_sid")
         if user_sid is not None:
             user_sid = str(user_sid)
@@ -64,9 +62,11 @@ class SessionMerger:
         start: EvidenceRecord,
         end: EvidenceRecord,
     ) -> SessionRecord:
+        started_at = self._normalized_observed_at(start)
+        ended_at = self._normalized_observed_at(end)
         duration_seconds = None
-        if start.observed_at and end.observed_at:
-            delta = end.observed_at - start.observed_at
+        if started_at and ended_at:
+            delta = ended_at - started_at
             duration_seconds = max(int(delta.total_seconds()), 0)
 
         parent_pid = start.value.get("parent_pid")
@@ -77,8 +77,8 @@ class SessionMerger:
             title_id=None,
             exe_id=self.normalizer.build_key(start),
             user_sid=self._string_value(start, "user_sid"),
-            started_at=start.observed_at,
-            ended_at=end.observed_at,
+            started_at=started_at,
+            ended_at=ended_at,
             duration_seconds=duration_seconds,
             confidence=RuntimeConfidence.EXACT,
             evidence_sources=sorted({start.source.value, end.source.value}),
@@ -89,13 +89,14 @@ class SessionMerger:
     def _build_partial_session(self, start: EvidenceRecord) -> SessionRecord:
         parent_pid = start.value.get("parent_pid")
         parent_chain = [str(parent_pid)] if parent_pid is not None else []
+        started_at = self._normalized_observed_at(start)
 
         return SessionRecord(
             session_id=self._session_id(start),
             title_id=None,
             exe_id=self.normalizer.build_key(start),
             user_sid=self._string_value(start, "user_sid"),
-            started_at=start.observed_at,
+            started_at=started_at,
             ended_at=None,
             duration_seconds=None,
             confidence=RuntimeConfidence.UNKNOWN,
@@ -105,13 +106,32 @@ class SessionMerger:
         )
 
     def _session_id(self, record: EvidenceRecord) -> str:
-        pid = record.value.get("pid", "unknown")
-        timestamp = record.observed_at or datetime.min.replace(tzinfo=timezone.utc)
-        return f"{self.normalizer.build_key(record)}:session:{pid}:{int(timestamp.timestamp())}"
+        pid = self._pid_value(record)
+        pid_fragment = str(pid) if pid is not None else "unknown"
+        timestamp = self._normalized_observed_at(record)
+        timestamp_fragment = str(int(timestamp.timestamp())) if timestamp else "none"
+        return f"{self.normalizer.build_key(record)}:session:{pid_fragment}:{timestamp_fragment}:{record.evidence_id}"
 
     def _sort_key(self, record: EvidenceRecord) -> tuple[datetime, str]:
-        observed_at = record.observed_at or datetime.min.replace(tzinfo=timezone.utc)
+        observed_at = self._normalized_observed_at(record) or datetime.min.replace(tzinfo=timezone.utc)
         return observed_at, record.evidence_id
+
+    def _normalized_observed_at(self, record: EvidenceRecord) -> datetime | None:
+        observed_at = record.observed_at
+        if observed_at is None:
+            return None
+        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+            return observed_at.replace(tzinfo=timezone.utc)
+        return observed_at.astimezone(timezone.utc)
+
+    def _pid_value(self, record: EvidenceRecord) -> int | None:
+        pid = record.value.get("pid")
+        if pid is None:
+            return None
+        try:
+            return int(pid)
+        except (TypeError, ValueError):
+            return None
 
     def _string_value(self, record: EvidenceRecord, key: str) -> str | None:
         value = record.value.get(key)

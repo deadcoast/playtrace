@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
-from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
+from playtrace.models.enums import EvidenceStrength, EvidenceType, RuntimeConfidence, SourceName
+from playtrace.models.session import SessionRecord
 from playtrace.store.db import Database
 
 
@@ -20,6 +21,30 @@ def test_bootstrap_creates_v2_tables(tmp_path: Path) -> None:
         }
 
     assert {"scan_runs", "artifacts", "evidence_links", "title_executables"} <= names
+
+    with db.connect() as conn:
+        session_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+
+    assert "evidence_ids" in session_columns
+
+
+def test_scan_runs_store_timezone_aware_timestamps(tmp_path: Path) -> None:
+    db = Database(tmp_path / "playtrace.db")
+    db.bootstrap()
+
+    scan_run_id = db.create_scan_run(["security_log"])
+    db.finish_scan_run(scan_run_id, [])
+
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT started_at, finished_at FROM scan_runs WHERE scan_run_id = ?",
+            (scan_run_id,),
+        ).fetchone()
+
+    assert row["started_at"].endswith("+00:00")
+    assert row["finished_at"].endswith("+00:00")
 
 
 def test_titles_can_be_rebuilt_from_artifacts_and_mappings(tmp_path: Path) -> None:
@@ -120,3 +145,63 @@ def test_titles_can_be_rebuilt_from_artifacts_and_mappings(tmp_path: Path) -> No
     assert title_row["launcher"] == "Steam"
     assert session_count == 1
     assert executable_count == 1
+
+
+def test_replace_sessions_persists_evidence_ids(tmp_path: Path) -> None:
+    db = Database(tmp_path / "playtrace.db")
+    db.bootstrap()
+
+    db.replace_sessions(
+        [
+            SessionRecord(
+                session_id="session:1",
+                title_id="title:elden_ring",
+                exe_id="path:d:\\steamlibrary\\steamapps\\common\\elden ring\\game\\eldenring.exe",
+                user_sid="S-1-5-21-demo",
+                started_at=None,
+                ended_at=None,
+                duration_seconds=None,
+                confidence=RuntimeConfidence.EXACT,
+                evidence_sources=["security_log"],
+                evidence_ids=["evidence:start", "evidence:end"],
+                parent_chain=["steam.exe"],
+            )
+        ]
+    )
+
+    with db.connect() as conn:
+        row = conn.execute("SELECT evidence_ids FROM sessions WHERE session_id = ?", ("session:1",)).fetchone()
+
+    assert row["evidence_ids"] == '["evidence:start", "evidence:end"]'
+
+
+def test_load_user_mappings_ignores_invalid_classification(tmp_path: Path) -> None:
+    db = Database(tmp_path / "playtrace.db")
+    db.bootstrap()
+
+    with db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO mappings (
+                mapping_id, target, title, classification, launcher,
+                ignore, created_at, confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "mapping:invalid",
+                r"D:\Games\Balatro\balatro.exe",
+                "Balatro",
+                "definitely-not-valid",
+                None,
+                0,
+                "2026-04-11T18:00:00+00:00",
+                "high",
+            ),
+        )
+        conn.commit()
+
+    mappings = db.load_user_mappings()
+
+    assert len(mappings) == 1
+    assert mappings[0].classification is None
+    assert mappings[0].normalized_key == "path:d:\\games\\balatro\\balatro.exe"

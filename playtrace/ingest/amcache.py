@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from playtrace.models.evidence import RawArtifact
@@ -33,7 +33,7 @@ class AmCacheCollector:
                     artifact_id=f"artifact:{self.name}:{index}:{uuid4().hex}",
                     scan_run_id=context.scan_run_id,
                     source=SourceName.AMCACHE,
-                    observed_at=datetime.now(),
+                    observed_at=datetime.now(timezone.utc),
                     raw_ref=f"amcache:{payload['exe_path']}",
                     payload=payload,
                 )

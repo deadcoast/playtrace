@@ -41,7 +41,35 @@ class IdentityNormalizer:
             candidate = self._extract_path_from_command_line(
                 self._string_value(record, "command_line")
             )
-        return self._normalize_path(candidate)
+        return self.normalize_path(candidate)
+
+    def normalize_executable_target(self, target: str | None) -> str | None:
+        if target is None:
+            return None
+
+        text = target.strip()
+        if not text:
+            return None
+
+        lowered = text.lower()
+        if lowered.startswith("sha1:"):
+            suffix = text[5:].strip()
+            return f"sha1:{suffix.lower()}" if suffix else None
+        if lowered.startswith("soft:"):
+            suffix = text[5:].strip()
+            return f"soft:{suffix.lower()}" if suffix else None
+        if lowered.startswith("path:"):
+            canonical_path = self.normalize_path(text[5:])
+            return f"path:{canonical_path}" if canonical_path else None
+
+        if self._looks_like_windows_path(text):
+            canonical_path = self.normalize_path(text)
+            return f"path:{canonical_path}" if canonical_path else None
+
+        return None
+
+    def normalize_path(self, path: str | None) -> str | None:
+        return self._normalize_path(path)
 
     def to_executable(self, record: EvidenceRecord) -> ExecutableIdentity:
         key = self.build_key(record)
@@ -104,3 +132,9 @@ class IdentityNormalizer:
 
         normalized = str(PureWindowsPath(stripped.replace("/", "\\")))
         return normalized.lower()
+
+    def _looks_like_windows_path(self, value: str) -> bool:
+        stripped = value.strip().strip('"').strip("'")
+        if len(stripped) >= 3 and stripped[1] == ":" and stripped[0].isalpha():
+            return stripped[2] in {"\\", "/"}
+        return stripped.startswith("\\\\") or stripped.startswith("//")

@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     bytes_out INTEGER NOT NULL DEFAULT 0,
     confidence TEXT NOT NULL,
     evidence_sources TEXT NOT NULL,
+    evidence_ids TEXT NOT NULL,
     parent_chain TEXT NOT NULL,
     notes TEXT NOT NULL
 );

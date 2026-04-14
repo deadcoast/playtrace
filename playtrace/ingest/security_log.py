@@ -14,7 +14,7 @@ SAMPLE_SECURITY_EVENTS = [
         "pid": 15320,
         "parent_pid": 9012,
         "exe_path": r"D:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe",
-        "command_line": r"\"D:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe\"",
+        "command_line": "\"D:\\SteamLibrary\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe\"",
         "user_sid": "S-1-5-21-demo",
     }
 ]

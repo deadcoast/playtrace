@@ -38,7 +38,7 @@ def classify_executable(
         if part
     )
 
-    if executable.path and executable.path.lower().startswith(r"c:\windows\\"):
+    if executable.path and executable.path.lower().startswith("c:\\windows\\"):
         return Classification.SYSTEM, None, ConfidenceLevel.HIGH
 
     for token in LAUNCHER_TOKENS:

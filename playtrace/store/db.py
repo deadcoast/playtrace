@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import socket
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
+from typing import TypeVar
 from uuid import uuid4
 
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
@@ -15,11 +17,15 @@ from playtrace.models.enums import (
     EvidenceType,
     SourceName,
 )
+from playtrace.models.executable import ExecutableIdentity
 from playtrace.models.mapping import UserMapping
 from playtrace.models.report import CoverageSummary, ReportSnapshot
 from playtrace.models.session import SessionRecord
 from playtrace.models.title import LaunchStats, RuntimeStats, TitleAggregate
+from playtrace.normalize.identity import IdentityNormalizer
 from playtrace.store.schema import SCHEMA_SQL
+
+EnumT = TypeVar("EnumT", bound=Enum)
 
 
 class Database:
@@ -39,7 +45,7 @@ class Database:
 
     def create_scan_run(self, selected_sources: list[str]) -> str:
         scan_run_id = f"scan:{uuid4().hex}"
-        started_at = datetime.now().isoformat()
+        started_at = self._utc_now().isoformat()
         host_name = socket.gethostname()
 
         with self.connect() as conn:
@@ -71,7 +77,7 @@ class Database:
                 WHERE scan_run_id = ?
                 """,
                 (
-                    datetime.now().isoformat(),
+                    self._utc_now().isoformat(),
                     json.dumps(warnings),
                     scan_run_id,
                 ),
@@ -153,6 +159,7 @@ class Database:
         return records
 
     def load_user_mappings(self) -> list[UserMapping]:
+        normalizer = IdentityNormalizer()
         with self.connect() as conn:
             rows = conn.execute(
                 """
@@ -164,17 +171,19 @@ class Database:
 
         mappings: list[UserMapping] = []
         for row in rows:
+            classification = self._optional_enum(Classification, row["classification"])
+            confidence = self._optional_enum(ConfidenceLevel, row["confidence"]) or ConfidenceLevel.HIGH
             mappings.append(
                 UserMapping(
                     mapping_id=row["mapping_id"],
                     target=row["target"],
                     title=row["title"],
-                    classification=Classification(row["classification"]) if row["classification"] else None,
+                    classification=classification,
                     launcher=row["launcher"],
                     ignore=bool(row["ignore"]),
                     created_at=datetime.fromisoformat(row["created_at"]),
-                    normalized_key=row["target"] if ":" in row["target"] else None,
-                    confidence=ConfidenceLevel(row["confidence"]),
+                    normalized_key=normalizer.normalize_executable_target(row["target"]),
+                    confidence=confidence,
                 )
             )
         return mappings
@@ -221,8 +230,8 @@ class Database:
                 INSERT INTO sessions (
                     session_id, title_id, exe_id, user_sid, started_at, ended_at,
                     duration_seconds, foreground_seconds, bytes_in, bytes_out,
-                    confidence, evidence_sources, parent_chain, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    confidence, evidence_sources, evidence_ids, parent_chain, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -238,6 +247,7 @@ class Database:
                         session.bytes_out,
                         session.confidence.value,
                         json.dumps(session.evidence_sources),
+                        json.dumps(session.evidence_ids),
                         json.dumps(session.parent_chain),
                         json.dumps(session.notes),
                     )
@@ -304,7 +314,7 @@ class Database:
 
         evidence = self.load_evidence_records()
         normalizer = IdentityNormalizer()
-        executable_map: dict[str, object] = {}
+        executable_map: dict[str, ExecutableIdentity] = {}
 
         for record in evidence:
             executable = normalizer.to_executable(record)
@@ -347,7 +357,7 @@ class Database:
             if title_count:
                 return
 
-            now = datetime.now()
+            now = self._utc_now()
             rows = [
                 (
                     "title:elden_ring",
@@ -484,7 +494,7 @@ class Database:
             warnings.append("No persisted titles found. Run `playtrace scan` to collect evidence.")
 
         return ReportSnapshot(
-            generated_at=datetime.now(),
+            generated_at=self._utc_now(),
             host_name=socket.gethostname(),
             coverage=CoverageSummary(
                 tracked_titles=int(total_row["tracked_titles"] or 0),
@@ -497,3 +507,18 @@ class Database:
             recent_sessions=[],
             warnings=warnings,
         )
+
+    def _utc_now(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+    def _optional_enum(
+        self,
+        enum_type: type[EnumT],
+        value: str | None,
+    ) -> EnumT | None:
+        if not value:
+            return None
+        try:
+            return enum_type(value)
+        except ValueError:
+            return None

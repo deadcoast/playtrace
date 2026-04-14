@@ -99,6 +99,58 @@ def test_helper_process_is_suppressed_from_primary_title() -> None:
     assert titles[0].executable_ids == [game.exe_id]
 
 
+def test_ignore_mapping_suppresses_executable() -> None:
+    executable = _exe(
+        exe_id="path:d:\\games\\ignored\\ignored.exe",
+        path=r"D:\Games\Ignored\ignored.exe",
+        filename="ignored.exe",
+        product_name="Ignored Game",
+    )
+    mapping = UserMapping(
+        mapping_id="mapping:ignore",
+        target=executable.exe_id,
+        title="Ignored Game",
+        classification=Classification.GAME,
+        launcher=None,
+        ignore=True,
+        created_at=datetime(2026, 4, 11, 18, 0, 0, tzinfo=timezone.utc),
+        normalized_key=executable.exe_id,
+    )
+
+    titles = TitleAggregator().build([executable], [_session(executable.exe_id, 1200, [])], [mapping])
+
+    assert titles == []
+
+
+def test_title_aggregator_emits_multiple_titles_for_independent_games() -> None:
+    balatro = _exe(
+        exe_id="path:d:\\games\\balatro\\balatro.exe",
+        path=r"D:\Games\Balatro\balatro.exe",
+        filename="balatro.exe",
+        product_name="Balatro",
+    )
+    hades = _exe(
+        exe_id="path:d:\\games\\hades\\hades.exe",
+        path=r"D:\Games\Hades\hades.exe",
+        filename="hades.exe",
+        product_name="Hades",
+    )
+
+    titles = TitleAggregator().build(
+        [balatro, hades],
+        [
+            _session(balatro.exe_id, 1800, []),
+            _session(hades.exe_id, 2400, []),
+        ],
+    )
+
+    assert {title.title for title in titles} == {"Balatro", "Hades"}
+    assert {tuple(title.executable_ids) for title in titles} == {
+        (balatro.exe_id,),
+        (hades.exe_id,),
+    }
+
+
 def _exe(
     *,
     exe_id: str,

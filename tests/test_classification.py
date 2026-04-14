@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from playtrace.classify.rules import classify_executable
+from playtrace.models.enums import Classification, ConfidenceLevel
+from playtrace.models.executable import ExecutableIdentity
 from playtrace.models.evidence import RawArtifact
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 from playtrace.parsers.amcache import AmCacheParser
@@ -79,3 +82,24 @@ def test_amcache_parser_emits_identity_evidence() -> None:
     assert len(records) == 1
     assert records[0].evidence_type == EvidenceType.IDENTITY
     assert records[0].strength == EvidenceStrength.STRONG
+
+
+def test_classify_executable_marks_windows_binaries_as_system() -> None:
+    executable = ExecutableIdentity(
+        exe_id="path:c:\\windows\\system32\\notepad.exe",
+        normalized_key="path:c:\\windows\\system32\\notepad.exe",
+        path=r"C:\Windows\System32\notepad.exe",
+        filename="notepad.exe",
+        original_filename="notepad.exe",
+        product_name="Microsoft Windows",
+        file_description="Notepad",
+        signer=None,
+        company_name=None,
+        sha1=None,
+    )
+
+    classification, subtype, confidence = classify_executable(executable)
+
+    assert classification == Classification.SYSTEM
+    assert subtype is None
+    assert confidence == ConfidenceLevel.HIGH
