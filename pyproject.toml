@@ -1,0 +1,13 @@
+[project]
+name = "playtrace"
+version = "0.1.0"
+description = "Native Windows executable history and session analysis"
+requires-python = ">=3.12"
+dependencies = ["typer>=0.12", "rich>=13.7", "pydantic>=2.7"]
+
+[project.scripts]
+playtrace = "playtrace.cli.app:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
