@@ -1,13 +1,35 @@
+# Depreciated Files and User Notes
+.hidden
+
 # Python-generated files
 __pycache__/
-*.py[oc]
 build/
 dist/
 wheels/
 *.egg-info
+*.py[oc]
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
 
 # Virtual environments
 .venv
 
-# Depreciated Files and User Notes
-.hidden
+# Configs and Artifacts
+.DS_Store
+.idea/
+.vscode/
