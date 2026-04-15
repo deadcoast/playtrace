@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Sequence
 
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
@@ -9,7 +10,7 @@ from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 class UserAssistParser:
     name = SourceName.USERASSIST.value
 
-    def parse(self, artifacts: list[RawArtifact]) -> list[EvidenceRecord]:
+    def parse(self, artifacts: Sequence[RawArtifact]) -> list[EvidenceRecord]:
         records: list[EvidenceRecord] = []
         for index, artifact in enumerate(artifacts, start=1):
             if artifact.payload.get("run_count") is not None:

@@ -29,12 +29,16 @@ class SecurityLogCollector:
     def collect(self, context: CollectContext) -> list[RawArtifact]:
         artifacts: list[RawArtifact] = []
         for index, payload in enumerate(SAMPLE_SECURITY_EVENTS, start=1):
+            observed_at = None
+            timestamp = payload.get("timestamp")
+            if timestamp:
+                observed_at = datetime.fromisoformat(str(timestamp))
             artifacts.append(
                 RawArtifact(
                     artifact_id=f"artifact:{self.name}:{index}:{uuid4().hex}",
                     scan_run_id=context.scan_run_id,
                     source=SourceName.SECURITY_LOG,
-                    observed_at=datetime.fromisoformat(payload["timestamp"]),
+                    observed_at=observed_at,
                     raw_ref=f"security_log:{payload['event_id']}:{payload['pid']}",
                     payload=payload,
                 )

@@ -6,6 +6,7 @@ from pathlib import PureWindowsPath
 
 from playtrace.models.evidence import EvidenceRecord
 from playtrace.models.executable import ExecutableIdentity
+from playtrace.normalize.pathing import PathNormalizer
 
 
 @dataclass(slots=True)
@@ -15,6 +16,9 @@ class NormalizedEvidence:
 
 
 class IdentityNormalizer:
+    def __init__(self, path_normalizer: PathNormalizer | None = None) -> None:
+        self._path_normalizer = path_normalizer or PathNormalizer()
+
     def build_key(self, record: EvidenceRecord) -> str:
         sha1 = self._string_value(record, "sha1")
         if sha1:
@@ -123,6 +127,14 @@ class IdentityNormalizer:
         return text.split(" ", 1)[0]
 
     def _normalize_path(self, path: str | None) -> str | None:
+        try:
+            normalized = self._path_normalizer.normalize(path)
+        except Exception:
+            normalized = None
+
+        if normalized:
+            return normalized
+
         if not path:
             return None
 

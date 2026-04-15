@@ -4,20 +4,10 @@ This file tracks outstanding work only. Completed work is moved to [docs/CHANGEL
 
 ## OPEN
 
-[REQUIRES-DEVELOPMENT]
-- playtrace\normalize\metadata.py
-- playtrace\normalize\pathing.py
-- playtrace\config\loader.py
-- playtrace\config\models.py
-- playtrace\store\migrations.py
-- playtrace\store\repositories.py
-- playtrace\utils\clock.py
-- playtrace\utils\hashing.py
-- playtrace\utils\platform.py
-
-[ERRORS]
-- docs\ERRORS.json
+- None.
 
 ## FINISHED
 
 - PR #1 review corrections were verified as complete and moved to [docs/CHANGELOG.md](/C:/Users/ryanf/github/_new/playtrace/docs/CHANGELOG.md).
+- Incomplete modules implementation from [docs/requirements.md](/C:/Users/ryanf/github/_new/playtrace/docs/requirements.md), [docs/design.md](/C:/Users/ryanf/github/_new/playtrace/docs/design.md), and [docs/tasks.md](/C:/Users/ryanf/github/_new/playtrace/docs/tasks.md) was completed and moved to [docs/CHANGELOG.md](/C:/Users/ryanf/github/_new/playtrace/docs/CHANGELOG.md).
+- Diagnostics cleanup for [docs/ERRORS.json](/C:/Users/ryanf/github/_new/playtrace/docs/ERRORS.json) was completed after refreshing the snapshot from a clean `mypy` run.

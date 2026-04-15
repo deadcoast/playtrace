@@ -36,3 +36,28 @@ def test_identity_normalizer_merges_case_only_path_variants() -> None:
 
     assert normalizer.build_key(first) == normalizer.build_key(second)
     assert normalizer.build_key(first).startswith("path:d:\\steamlibrary\\steamapps\\common\\elden ring\\game\\eldenring.exe")
+
+
+def test_identity_normalizer_expands_environment_variables_via_path_normalizer(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    normalizer = IdentityNormalizer()
+    record = EvidenceRecord(
+        evidence_id="evidence:env",
+        artifact_id="artifact:env",
+        source=SourceName.SECURITY_LOG,
+        evidence_type=EvidenceType.PROCESS_START,
+        observed_at=datetime(2026, 4, 11, 18, 42, 3, tzinfo=timezone.utc),
+        strength=EvidenceStrength.EXACT,
+        value={
+            "exe_path": r"%ProgramFiles%/Steam/steam.exe",
+        },
+    )
+
+    assert normalizer.canonical_path(record) == r"c:\program files\steam\steam.exe"
+    assert normalizer.build_key(record) == r"path:c:\program files\steam\steam.exe"
+    assert (
+        normalizer.normalize_executable_target(r"path:%ProgramFiles%/Steam/steam.exe")
+        == r"path:c:\program files\steam\steam.exe"
+    )

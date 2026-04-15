@@ -28,12 +28,16 @@ class SrumCollector:
     def collect(self, context: CollectContext) -> list[RawArtifact]:
         artifacts: list[RawArtifact] = []
         for index, payload in enumerate(SAMPLE_SRUM_ENTRIES, start=1):
+            observed_at = None
+            window_start = payload.get("window_start")
+            if window_start:
+                observed_at = datetime.fromisoformat(str(window_start))
             artifacts.append(
                 RawArtifact(
                     artifact_id=f"artifact:{self.name}:{index}:{uuid4().hex}",
                     scan_run_id=context.scan_run_id,
                     source=SourceName.SRUM,
-                    observed_at=datetime.fromisoformat(payload["window_start"]),
+                    observed_at=observed_at,
                     raw_ref="srum:application-resource-usage",
                     payload=payload,
                 )

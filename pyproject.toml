@@ -3,7 +3,13 @@ name = "playtrace"
 version = "0.1.0"
 description = "Native Windows executable history and session analysis"
 requires-python = ">=3.12"
-dependencies = ["typer>=0.12", "rich>=13.7", "pydantic>=2.7"]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "pydantic>=2.7",
+    "pefile>=2024.8.26",
+    "pywin32>=311",
+]
 
 [project.scripts]
 playtrace = "playtrace.cli.app:app"
@@ -18,3 +24,10 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["playtrace*"]
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.152.0",
+    "mypy>=1.20.1",
+    "pytest>=9.0.3",
+]

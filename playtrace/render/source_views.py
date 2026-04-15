@@ -6,10 +6,10 @@ from rich.table import Table
 from rich.text import Text
 from typing import TYPE_CHECKING
 
+from playtrace.models.inspection import InspectionDetail
 from playtrace.render.theme import Theme
 
 if TYPE_CHECKING:
-    from playtrace.services.inspector import InspectionDetail
     from playtrace.services.sources import SourcesSnapshot
 
 

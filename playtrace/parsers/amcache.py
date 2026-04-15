@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Sequence
+
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 
@@ -7,7 +9,7 @@ from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 class AmCacheParser:
     name = SourceName.AMCACHE.value
 
-    def parse(self, artifacts: list[RawArtifact]) -> list[EvidenceRecord]:
+    def parse(self, artifacts: Sequence[RawArtifact]) -> list[EvidenceRecord]:
         records: list[EvidenceRecord] = []
         for index, artifact in enumerate(artifacts, start=1):
             records.append(

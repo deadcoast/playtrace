@@ -27,12 +27,16 @@ class UserAssistCollector:
     def collect(self, context: CollectContext) -> list[RawArtifact]:
         artifacts: list[RawArtifact] = []
         for index, payload in enumerate(SAMPLE_USERASSIST_ENTRIES, start=1):
+            observed_at = None
+            last_run = payload.get("last_run")
+            if last_run:
+                observed_at = datetime.fromisoformat(str(last_run))
             artifacts.append(
                 RawArtifact(
                     artifact_id=f"artifact:{self.name}:{index}:{uuid4().hex}",
                     scan_run_id=context.scan_run_id,
                     source=SourceName.USERASSIST,
-                    observed_at=datetime.fromisoformat(payload["last_run"]),
+                    observed_at=observed_at,
                     raw_ref=f"userassist:{payload['entry']}",
                     payload=payload,
                 )

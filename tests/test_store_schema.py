@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
 from playtrace.models.enums import EvidenceStrength, EvidenceType, RuntimeConfidence, SourceName
 from playtrace.models.session import SessionRecord
+from playtrace.store import db as db_module
 from playtrace.store.db import Database
 
 
@@ -45,6 +47,38 @@ def test_scan_runs_store_timezone_aware_timestamps(tmp_path: Path) -> None:
 
     assert row["started_at"].endswith("+00:00")
     assert row["finished_at"].endswith("+00:00")
+
+
+def test_scan_runs_format_timestamps_with_clock_utc_now(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db = Database(tmp_path / "playtrace.db")
+    db.bootstrap()
+    fixed_time = datetime(2026, 4, 14, 20, 30, 0, tzinfo=timezone.utc)
+
+    class FakeClock:
+        @staticmethod
+        def utc_now() -> datetime:
+            return fixed_time
+
+        @staticmethod
+        def format_iso8601(value: datetime | None) -> str | None:
+            return value.isoformat() if value else None
+
+    monkeypatch.setattr(db_module, "Clock", FakeClock, raising=False)
+
+    scan_run_id = db.create_scan_run(["security_log"])
+    db.finish_scan_run(scan_run_id, ["warning:demo"])
+
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT started_at, finished_at FROM scan_runs WHERE scan_run_id = ?",
+            (scan_run_id,),
+        ).fetchone()
+
+    assert row["started_at"] == fixed_time.isoformat()
+    assert row["finished_at"] == fixed_time.isoformat()
 
 
 def test_titles_can_be_rebuilt_from_artifacts_and_mappings(tmp_path: Path) -> None:
@@ -205,3 +239,33 @@ def test_load_user_mappings_ignores_invalid_classification(tmp_path: Path) -> No
     assert len(mappings) == 1
     assert mappings[0].classification is None
     assert mappings[0].normalized_key == "path:d:\\games\\balatro\\balatro.exe"
+
+
+def test_load_user_mappings_parses_existing_offset_timestamps_as_utc(tmp_path: Path) -> None:
+    db = Database(tmp_path / "playtrace.db")
+    db.bootstrap()
+
+    with db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO mappings (
+                mapping_id, target, title, classification, launcher,
+                ignore, created_at, confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "mapping:offset",
+                r"D:\Games\Hades\hades.exe",
+                "Hades",
+                "game",
+                "Steam",
+                0,
+                "2026-04-11T10:00:00-08:00",
+                "high",
+            ),
+        )
+        conn.commit()
+
+    mapping = db.load_user_mappings()[0]
+
+    assert mapping.created_at == datetime(2026, 4, 11, 18, 0, 0, tzinfo=timezone.utc)

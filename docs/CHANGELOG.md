@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Completed the incomplete-modules implementation bundle for `normalize`, `config`, `store`, and `utils`, including PE metadata extraction, Windows path normalization, TOML config loading, schema migrations, typed repositories, and shared clock, hashing, and platform helpers.
+- Added regression and property-oriented test coverage plus PE fixtures for the new normalize, config, store, and utility modules.
+- Added `mypy` to the dev environment so diagnostics refreshes are reproducible from the worktree.
+
+### Changed
+
+- `IdentityNormalizer` now delegates path canonicalization to `PathNormalizer` with compatibility fallback behavior for existing callers.
+- `Database` now formats and parses persisted timestamps through `Clock`, keeping UTC storage consistent while remaining compatible with existing offset timestamps.
+
+### Fixed
+
+- Normalized parser signatures, ingest sample timestamp parsing, and shared inspection model typing so the refreshed `docs/ERRORS.json` snapshot is clean after a full `mypy` run.
+
 ## [0.1.0] - 2026-04-14
 
 ### Added

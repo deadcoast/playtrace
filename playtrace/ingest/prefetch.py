@@ -29,7 +29,10 @@ class PrefetchCollector:
     def collect(self, context: CollectContext) -> list[RawArtifact]:
         artifacts: list[RawArtifact] = []
         for index, payload in enumerate(SAMPLE_PREFETCH_ENTRIES, start=1):
-            observed_at = datetime.fromisoformat(payload["last_run_times"][0])
+            observed_at = None
+            last_run_times = payload.get("last_run_times")
+            if isinstance(last_run_times, list) and last_run_times:
+                observed_at = datetime.fromisoformat(str(last_run_times[0]))
             artifacts.append(
                 RawArtifact(
                     artifact_id=f"artifact:{self.name}:{index}:{uuid4().hex}",

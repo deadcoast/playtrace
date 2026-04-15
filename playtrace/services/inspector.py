@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
+from playtrace.models.inspection import InspectionDetail
 from playtrace.normalize.identity import IdentityNormalizer
 from playtrace.render.console import build_console
 from playtrace.render.source_views import render_inspection
@@ -18,18 +19,6 @@ class InspectRequest:
     theme: str
     density: str
     target: str
-
-
-@dataclass(slots=True)
-class InspectionDetail:
-    title: str
-    runtime_confidence: str
-    evidence_sources: list[str] = field(default_factory=list)
-    evidence_source_counts: dict[str, int] = field(default_factory=dict)
-    evidence_ids: list[str] = field(default_factory=list)
-    parent_chains: list[list[str]] = field(default_factory=list)
-    mapping_source: str = "heuristic"
-    confidence_reasoning: list[str] = field(default_factory=list)
 
 
 class InspectorService:
