@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
+import playtrace.normalize.pathing as pathing_module
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -42,11 +43,30 @@ def test_path_normalizer_expands_environment_variables(
 
 
 def test_path_normalizer_resolves_relative_paths_to_absolute(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.chdir(r"C:\Users\ryanf")
+    monkeypatch.chdir(tmp_path)
 
-    assert PathNormalizer().normalize(r"Games\Balatro.exe") == r"c:\users\ryanf\games\balatro.exe"
+    expected = str(PureWindowsPath(tmp_path) / "Games" / "Balatro.exe").lower()
+
+    assert PathNormalizer().normalize(r"Games\Balatro.exe") == expected
+
+
+def test_path_normalizer_does_not_depend_on_host_os_path_helpers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    monkeypatch.setattr(pathing_module.os.path, "expandvars", lambda value: value)
+    monkeypatch.setattr(pathing_module.os.path, "abspath", lambda value: f"/workspace/{value}")
+
+    expected = str(PureWindowsPath(tmp_path) / "Games" / "Balatro.exe").lower()
+    normalizer = PathNormalizer()
+
+    assert normalizer.normalize(r"%ProgramFiles%\Steam\Steam.exe") == r"c:\program files\steam\steam.exe"
+    assert normalizer.normalize(r"Games\Balatro.exe") == expected
 
 
 def test_path_normalizer_returns_none_for_none_or_empty() -> None:

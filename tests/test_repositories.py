@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -280,6 +280,59 @@ def test_mapping_repository_find_by_target_normalizes_raw_windows_paths(tmp_path
     loaded = repository.find_by_target(r'd:\games\BALATRO\balatro.exe')
 
     assert loaded == saved
+
+
+def test_mapping_repository_tolerates_invalid_persisted_enums_and_normalizes_timestamps(
+    tmp_path: Path,
+) -> None:
+    db = _bootstrap_db(tmp_path)
+
+    with db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO mappings (
+                mapping_id, target, title, classification, launcher,
+                ignore, created_at, confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "mapping:legacy",
+                r"path:d:\games\balatro\balatro.exe",
+                "Balatro",
+                "definitely-not-valid",
+                "Steam",
+                0,
+                "2026-04-14T10:00:00-08:00",
+                "definitely-not-valid",
+            ),
+        )
+        conn.commit()
+
+    loaded = MappingRepository(db).find_by_id("mapping:legacy")
+
+    assert loaded is not None
+    assert loaded.classification is None
+    assert loaded.confidence == ConfidenceLevel.HIGH
+    assert loaded.created_at == datetime(2026, 4, 14, 18, 0, 0, tzinfo=timezone.utc)
+
+
+def test_mapping_repository_save_normalizes_created_at_to_utc(tmp_path: Path) -> None:
+    db = _bootstrap_db(tmp_path)
+    repository = MappingRepository(db)
+    mapping = _mapping(
+        mapping_id="mapping:offset",
+        created_at=datetime(2026, 4, 14, 10, 0, 0, tzinfo=timezone(timedelta(hours=-8))),
+    )
+
+    repository.save(mapping)
+
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT created_at FROM mappings WHERE mapping_id = ?",
+            ("mapping:offset",),
+        ).fetchone()
+
+    assert row["created_at"] == "2026-04-14T18:00:00+00:00"
 
 
 def test_repository_uses_database_connection_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

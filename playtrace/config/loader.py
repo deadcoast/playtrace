@@ -4,20 +4,20 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from playtrace.config.models import Config_Model
+from playtrace.config.models import ConfigModel
 
 
 class ConfigLoader:
-    def load(self, path: Path | None = None) -> Config_Model:
+    def load(self, path: Path | None = None) -> ConfigModel:
         if path is None:
-            return Config_Model()
+            return ConfigModel()
 
         candidate = Path(path)
         if not candidate.exists():
-            return Config_Model()
+            return ConfigModel()
 
         data = self._parse_toml(candidate)
-        return Config_Model(**self._apply_defaults(data))
+        return ConfigModel(**self._apply_defaults(data))
 
     def _parse_toml(self, path: Path) -> dict[str, Any]:
         try:

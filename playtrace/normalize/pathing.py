@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import PureWindowsPath
 
 
 class PathNormalizer:
+    _ENV_VAR_PATTERN = re.compile(r"%([^%]+)%")
+
     def normalize(self, path: str | None) -> str | None:
         if path is None:
             return None
@@ -28,10 +31,28 @@ class PathNormalizer:
         return path
 
     def _expand_variables(self, path: str) -> str:
-        return os.path.expandvars(path)
+        return self._ENV_VAR_PATTERN.sub(self._expand_variable, path)
 
     def _to_absolute(self, path: str) -> str:
-        return path if PureWindowsPath(path).is_absolute() else os.path.abspath(path)
+        windows_path = PureWindowsPath(path)
+        if windows_path.is_absolute():
+            return str(windows_path)
+
+        cwd = self._windows_cwd()
+        if cwd is None:
+            return str(windows_path)
+
+        return str(PureWindowsPath(cwd) / windows_path)
 
     def _to_backslashes(self, path: str) -> str:
         return path.replace("/", "\\")
+
+    def _expand_variable(self, match: re.Match[str]) -> str:
+        variable_name = match.group(1)
+        return os.environ.get(variable_name, match.group(0))
+
+    def _windows_cwd(self) -> str | None:
+        current = str(PureWindowsPath(os.getcwd()))
+        if not PureWindowsPath(current).is_absolute():
+            return None
+        return current

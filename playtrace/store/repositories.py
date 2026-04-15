@@ -4,6 +4,7 @@ import json
 import sqlite3
 from abc import ABC, abstractmethod
 from datetime import datetime
+from enum import Enum
 from typing import Any, Generic, TypeVar
 
 from playtrace.models.enums import Classification, ConfidenceLevel, RuntimeConfidence
@@ -13,20 +14,36 @@ from playtrace.models.session import SessionRecord
 from playtrace.models.title import LaunchStats, RuntimeStats, TitleAggregate
 from playtrace.normalize.identity import IdentityNormalizer
 from playtrace.store.db import Database
+from playtrace.utils.clock import Clock
 
 T = TypeVar("T")
+EnumT = TypeVar("EnumT", bound=Enum)
 
 
 class Repository(Generic[T], ABC):
-    def __init__(self, db: Database, table_name: str, id_column: str) -> None:
+    def __init__(
+        self,
+        db: Database,
+        *,
+        id_column: str,
+        write_columns: tuple[str, ...],
+        select_by_id_sql: str,
+        select_all_sql: str,
+        upsert_sql: str,
+        delete_sql: str,
+    ) -> None:
         self.db = db
-        self.table_name = table_name
         self.id_column = id_column
+        self._write_columns = write_columns
+        self._select_by_id_sql = select_by_id_sql
+        self._select_all_sql = select_all_sql
+        self._upsert_sql = upsert_sql
+        self._delete_sql = delete_sql
 
     def find_by_id(self, entity_id: str) -> T | None:
         with self.db.connect() as conn:
             row = conn.execute(
-                f"SELECT * FROM {self.table_name} WHERE {self.id_column} = ?",
+                self._select_by_id_sql,
                 (entity_id,),
             ).fetchone()
 
@@ -37,29 +54,18 @@ class Repository(Generic[T], ABC):
 
     def find_all(self) -> list[T]:
         with self.db.connect() as conn:
-            rows = conn.execute(
-                f"SELECT * FROM {self.table_name} ORDER BY {self.id_column} ASC"
-            ).fetchall()
+            rows = conn.execute(self._select_all_sql).fetchall()
 
             return [self._row_to_entity(conn, row) for row in rows]
 
     def save(self, entity: T) -> T:
         record = self._entity_to_record(entity)
-        columns = list(record.keys())
         entity_id = str(record[self.id_column])
-        placeholders = ", ".join("?" for _ in columns)
-        update_columns = [column for column in columns if column != self.id_column]
-        assignments = ", ".join(f"{column} = excluded.{column}" for column in update_columns)
 
         with self.db.connect() as conn:
             conn.execute(
-                f"""
-                INSERT INTO {self.table_name} ({", ".join(columns)})
-                VALUES ({placeholders})
-                ON CONFLICT({self.id_column}) DO UPDATE SET
-                    {assignments}
-                """,
-                tuple(record[column] for column in columns),
+                self._upsert_sql,
+                tuple(record[column] for column in self._write_columns),
             )
             self._after_save(conn, entity)
             conn.commit()
@@ -71,10 +77,7 @@ class Repository(Generic[T], ABC):
 
     def delete(self, entity_id: str) -> None:
         with self.db.connect() as conn:
-            conn.execute(
-                f"DELETE FROM {self.table_name} WHERE {self.id_column} = ?",
-                (entity_id,),
-            )
+            conn.execute(self._delete_sql, (entity_id,))
             conn.commit()
 
     @abstractmethod
@@ -91,7 +94,52 @@ class Repository(Generic[T], ABC):
 
 class ExecutableRepository(Repository[ExecutableIdentity]):
     def __init__(self, db: Database) -> None:
-        super().__init__(db=db, table_name="executables", id_column="exe_id")
+        super().__init__(
+            db=db,
+            id_column="exe_id",
+            write_columns=(
+                "exe_id",
+                "normalized_key",
+                "path",
+                "filename",
+                "original_filename",
+                "product_name",
+                "file_description",
+                "signer",
+                "company_name",
+                "sha1",
+                "classification",
+                "classification_confidence",
+                "ignored",
+                "first_seen",
+                "last_seen",
+            ),
+            select_by_id_sql="SELECT * FROM executables WHERE exe_id = ?",
+            select_all_sql="SELECT * FROM executables ORDER BY exe_id ASC",
+            upsert_sql="""
+                INSERT INTO executables (
+                    exe_id, normalized_key, path, filename, original_filename, product_name,
+                    file_description, signer, company_name, sha1, classification,
+                    classification_confidence, ignored, first_seen, last_seen
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(exe_id) DO UPDATE SET
+                    normalized_key = excluded.normalized_key,
+                    path = excluded.path,
+                    filename = excluded.filename,
+                    original_filename = excluded.original_filename,
+                    product_name = excluded.product_name,
+                    file_description = excluded.file_description,
+                    signer = excluded.signer,
+                    company_name = excluded.company_name,
+                    sha1 = excluded.sha1,
+                    classification = excluded.classification,
+                    classification_confidence = excluded.classification_confidence,
+                    ignored = excluded.ignored,
+                    first_seen = excluded.first_seen,
+                    last_seen = excluded.last_seen
+            """,
+            delete_sql="DELETE FROM executables WHERE exe_id = ?",
+        )
 
     def find_by_normalized_key(self, key: str) -> ExecutableIdentity | None:
         with self.db.connect() as conn:
@@ -146,7 +194,52 @@ class ExecutableRepository(Repository[ExecutableIdentity]):
 
 class SessionRepository(Repository[SessionRecord]):
     def __init__(self, db: Database) -> None:
-        super().__init__(db=db, table_name="sessions", id_column="session_id")
+        super().__init__(
+            db=db,
+            id_column="session_id",
+            write_columns=(
+                "session_id",
+                "title_id",
+                "exe_id",
+                "user_sid",
+                "started_at",
+                "ended_at",
+                "duration_seconds",
+                "foreground_seconds",
+                "bytes_in",
+                "bytes_out",
+                "confidence",
+                "evidence_sources",
+                "evidence_ids",
+                "parent_chain",
+                "notes",
+            ),
+            select_by_id_sql="SELECT * FROM sessions WHERE session_id = ?",
+            select_all_sql="SELECT * FROM sessions ORDER BY session_id ASC",
+            upsert_sql="""
+                INSERT INTO sessions (
+                    session_id, title_id, exe_id, user_sid, started_at, ended_at,
+                    duration_seconds, foreground_seconds, bytes_in, bytes_out,
+                    confidence, evidence_sources, evidence_ids, parent_chain, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    title_id = excluded.title_id,
+                    exe_id = excluded.exe_id,
+                    user_sid = excluded.user_sid,
+                    started_at = excluded.started_at,
+                    ended_at = excluded.ended_at,
+                    duration_seconds = excluded.duration_seconds,
+                    foreground_seconds = excluded.foreground_seconds,
+                    bytes_in = excluded.bytes_in,
+                    bytes_out = excluded.bytes_out,
+                    confidence = excluded.confidence,
+                    evidence_sources = excluded.evidence_sources,
+                    evidence_ids = excluded.evidence_ids,
+                    parent_chain = excluded.parent_chain,
+                    notes = excluded.notes
+            """,
+            delete_sql="DELETE FROM sessions WHERE session_id = ?",
+        )
 
     def find_by_exe_id(self, exe_id: str) -> list[SessionRecord]:
         with self.db.connect() as conn:
@@ -203,7 +296,61 @@ class SessionRepository(Repository[SessionRecord]):
 
 class TitleRepository(Repository[TitleAggregate]):
     def __init__(self, db: Database) -> None:
-        super().__init__(db=db, table_name="titles", id_column="title_id")
+        super().__init__(
+            db=db,
+            id_column="title_id",
+            write_columns=(
+                "title_id",
+                "title",
+                "classification",
+                "classification_confidence",
+                "title_confidence",
+                "launcher",
+                "confirmed_seconds",
+                "estimated_seconds",
+                "foreground_seconds",
+                "runtime_confidence",
+                "launches_confirmed",
+                "launches_inferred",
+                "launches_gui",
+                "launches_confidence",
+                "first_seen",
+                "last_seen",
+                "evidence_sources",
+                "tags",
+                "notes",
+            ),
+            select_by_id_sql="SELECT * FROM titles WHERE title_id = ?",
+            select_all_sql="SELECT * FROM titles ORDER BY title_id ASC",
+            upsert_sql="""
+                INSERT INTO titles (
+                    title_id, title, classification, classification_confidence, title_confidence,
+                    launcher, confirmed_seconds, estimated_seconds, foreground_seconds,
+                    runtime_confidence, launches_confirmed, launches_inferred, launches_gui,
+                    launches_confidence, first_seen, last_seen, evidence_sources, tags, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(title_id) DO UPDATE SET
+                    title = excluded.title,
+                    classification = excluded.classification,
+                    classification_confidence = excluded.classification_confidence,
+                    title_confidence = excluded.title_confidence,
+                    launcher = excluded.launcher,
+                    confirmed_seconds = excluded.confirmed_seconds,
+                    estimated_seconds = excluded.estimated_seconds,
+                    foreground_seconds = excluded.foreground_seconds,
+                    runtime_confidence = excluded.runtime_confidence,
+                    launches_confirmed = excluded.launches_confirmed,
+                    launches_inferred = excluded.launches_inferred,
+                    launches_gui = excluded.launches_gui,
+                    launches_confidence = excluded.launches_confidence,
+                    first_seen = excluded.first_seen,
+                    last_seen = excluded.last_seen,
+                    evidence_sources = excluded.evidence_sources,
+                    tags = excluded.tags,
+                    notes = excluded.notes
+            """,
+            delete_sql="DELETE FROM titles WHERE title_id = ?",
+        )
 
     def find_by_classification(self, classification: Classification) -> list[TitleAggregate]:
         with self.db.connect() as conn:
@@ -296,7 +443,37 @@ class TitleRepository(Repository[TitleAggregate]):
 
 class MappingRepository(Repository[UserMapping]):
     def __init__(self, db: Database) -> None:
-        super().__init__(db=db, table_name="mappings", id_column="mapping_id")
+        super().__init__(
+            db=db,
+            id_column="mapping_id",
+            write_columns=(
+                "mapping_id",
+                "target",
+                "title",
+                "classification",
+                "launcher",
+                "ignore",
+                "created_at",
+                "confidence",
+            ),
+            select_by_id_sql="SELECT * FROM mappings WHERE mapping_id = ?",
+            select_all_sql="SELECT * FROM mappings ORDER BY mapping_id ASC",
+            upsert_sql="""
+                INSERT INTO mappings (
+                    mapping_id, target, title, classification, launcher,
+                    ignore, created_at, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(mapping_id) DO UPDATE SET
+                    target = excluded.target,
+                    title = excluded.title,
+                    classification = excluded.classification,
+                    launcher = excluded.launcher,
+                    ignore = excluded.ignore,
+                    created_at = excluded.created_at,
+                    confidence = excluded.confidence
+            """,
+            delete_sql="DELETE FROM mappings WHERE mapping_id = ?",
+        )
         self._normalizer = IdentityNormalizer()
 
     def find_by_target(self, target: str) -> UserMapping | None:
@@ -334,12 +511,13 @@ class MappingRepository(Repository[UserMapping]):
             mapping_id=row["mapping_id"],
             target=target,
             title=row["title"],
-            classification=Classification(row["classification"]) if row["classification"] else None,
+            classification=_optional_enum(Classification, row["classification"]),
             launcher=row["launcher"],
             ignore=bool(row["ignore"]),
-            created_at=datetime.fromisoformat(row["created_at"]),
+            created_at=_parse_datetime(row["created_at"]) or Clock.utc_now(),
             normalized_key=self._normalizer.normalize_executable_target(target),
-            confidence=ConfidenceLevel(row["confidence"]),
+            confidence=_optional_enum(ConfidenceLevel, row["confidence"], ConfidenceLevel.HIGH)
+            or ConfidenceLevel.HIGH,
         )
 
     def _target_candidates(self, target: str) -> list[str]:
@@ -354,14 +532,25 @@ class MappingRepository(Repository[UserMapping]):
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    return datetime.fromisoformat(value)
+    return Clock.parse_iso8601(value)
 
 
 def _serialize_datetime(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
+    return Clock.format_iso8601(value)
 
 
 def _load_json_list(value: str) -> list[str]:
     return list(json.loads(value))
+
+
+def _optional_enum(
+    enum_type: type[EnumT],
+    value: str | None,
+    default: EnumT | None = None,
+) -> EnumT | None:
+    if not value:
+        return default
+    try:
+        return enum_type(value)
+    except ValueError:
+        return default

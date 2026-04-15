@@ -10,7 +10,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from playtrace.config.loader import ConfigLoader
-from playtrace.config.models import Config_Model
+from playtrace.config.models import ConfigModel, Config_Model
 from playtrace.models.enums import SourceName
 
 VALID_SOURCES = [source.value for source in SourceName]
@@ -40,6 +40,10 @@ def _render_toml(
         "[classification]\n"
         f"overrides = {{ {overrides_text} }}\n"
     )
+
+
+def test_config_model_exposes_pascal_case_public_name() -> None:
+    assert ConfigModel is Config_Model
 
 
 @given(st.integers(max_value=0))

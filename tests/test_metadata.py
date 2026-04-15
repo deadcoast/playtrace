@@ -96,3 +96,14 @@ def test_metadata_extractor_returns_empty_metadata_for_missing_file() -> None:
     metadata = MetadataExtractor().extract(FIXTURES / "missing.exe")
 
     assert metadata == EMPTY_METADATA
+
+
+def test_metadata_extractor_returns_fresh_empty_metadata_instances(tmp_path: Path) -> None:
+    extractor = MetadataExtractor()
+
+    first = extractor.extract(tmp_path / "missing.exe")
+    first.product_name = "mutated"
+    second = extractor.extract(tmp_path / "still-missing.exe")
+
+    assert second == EMPTY_METADATA
+    assert second is not first

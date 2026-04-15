@@ -6,7 +6,7 @@ from playtrace.models.enums import SourceName
 
 
 @dataclass(slots=True)
-class Config_Model:
+class ConfigModel:
     session_merge_dedupe_window_minutes: int = 2
     default_sources: list[str] = field(default_factory=list)
     classification_overrides: dict[str, str] = field(default_factory=dict)
@@ -41,3 +41,7 @@ class Config_Model:
         for key, value in self.classification_overrides.items():
             if not isinstance(key, str) or not isinstance(value, str):
                 raise TypeError("classification_overrides must map strings to strings")
+
+
+# Backward-compatible alias for the spec bundle's original public name.
+Config_Model = ConfigModel

@@ -43,23 +43,15 @@ class _CertNameBlob(ctypes.Structure):
 
 
 class MetadataExtractor:
-    _EMPTY = ExecutableMetadata(
-        product_name=None,
-        original_filename=None,
-        file_description=None,
-        company_name=None,
-        signer=None,
-    )
-
     def extract(self, path: str | Path) -> ExecutableMetadata:
         candidate = Path(path)
         if pefile is None:
-            return self._EMPTY
+            return self._empty()
 
         try:
             pe = pefile.PE(str(candidate))
         except Exception:
-            return self._EMPTY
+            return self._empty()
 
         try:
             pe.parse_data_directories(
@@ -77,6 +69,15 @@ class MetadataExtractor:
             file_description=self._normalize_field(version_info.get("FileDescription")),
             company_name=self._normalize_field(version_info.get("CompanyName")),
             signer=self._normalize_field(self._extract_signature(candidate)),
+        )
+
+    def _empty(self) -> ExecutableMetadata:
+        return ExecutableMetadata(
+            product_name=None,
+            original_filename=None,
+            file_description=None,
+            company_name=None,
+            signer=None,
         )
 
     def _extract_version_info(self, pe: pefile_types.PE) -> dict[str, str]:

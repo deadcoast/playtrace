@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import platform
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import PureWindowsPath
 from typing import ClassVar
 
 
@@ -33,7 +33,7 @@ class PlatformDetector:
             return cls._cached
 
         system_root = cls._clean(os.environ.get("SystemRoot") or os.environ.get("WINDIR"))
-        system_directory = str(Path(system_root) / "System32") if system_root else None
+        system_directory = str(PureWindowsPath(system_root) / "System32") if system_root else None
 
         cls._cached = PlatformInfo(
             windows_version=cls._detect_windows_version(),
