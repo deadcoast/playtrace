@@ -19,4 +19,8 @@ def test_scan_command_never_finishes_without_rendering_summary(tmp_path: Path, c
 
     ScannerService().render(request)
 
-    assert "playtrace SCAN" in capsys.readouterr().out
+    output = capsys.readouterr().out
+
+    assert "playtrace SCAN" in output
+    assert "Summary" in output
+    assert "Source Status" in output

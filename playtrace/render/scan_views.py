@@ -34,6 +34,8 @@ def render_scan(console: Console, theme: Theme, snapshot: ScanLiveSnapshot) -> N
         style=theme.dim,
     )
     console.print(Panel(header, border_style=theme.accent, padding=(1, 2)))
+    console.print()
+    console.print(Text("Summary", style=f"bold {theme.text}"))
 
     console.print(
         metric_cards(

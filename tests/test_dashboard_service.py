@@ -25,3 +25,12 @@ def test_dashboard_refresh_runs_scan_before_render(tmp_path: Path) -> None:
     service.render(DashboardRequest(db_path=tmp_path / "playtrace.db", refresh=True, theme="mono"))
 
     assert service.scanner.called
+
+
+def test_dashboard_render_uses_identity_block_sections(tmp_path: Path, capsys) -> None:
+    DashboardService().render(DashboardRequest(db_path=tmp_path / "playtrace.db", refresh=False, theme="mono"))
+
+    output = capsys.readouterr().out
+
+    assert "playtrace ME" in output
+    assert "Coverage" in output

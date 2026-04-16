@@ -30,6 +30,7 @@ def render_dashboard(console, theme: Theme, snapshot: IdentityDashboardSnapshot)
     )
     console.print(header)
     console.print()
+    console.print(Text("Coverage", style=f"bold {theme.text}"))
     console.print(
         metric_cards(
             theme,
