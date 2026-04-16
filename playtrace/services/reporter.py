@@ -161,7 +161,7 @@ class ReporterService:
                     foreground_seconds=int(row["foreground_seconds"]),
                     bytes_in=int(row["bytes_in"]),
                     bytes_out=int(row["bytes_out"]),
-                    confidence=RuntimeConfidence(row["confidence"]),
+                    confidence=self._enum_value(RuntimeConfidence, row["confidence"], RuntimeConfidence.UNKNOWN),
                     evidence_sources=json.loads(row["evidence_sources"]),
                     evidence_ids=json.loads(row["evidence_ids"]),
                     parent_chain=json.loads(row["parent_chain"]),

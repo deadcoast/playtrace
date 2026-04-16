@@ -128,6 +128,84 @@ def test_render_sessions_outputs_recent_sessions(tmp_path: Path, capsys) -> None
     assert "Older Game" not in output
 
 
+def test_render_sessions_defaults_invalid_confidence_to_unknown(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "playtrace.db"
+    db = Database(db_path)
+    db.bootstrap()
+
+    db.replace_titles([_title(title_id="title:balatro", title="Balatro")])
+    db.replace_sessions(
+        [
+            _session(
+                session_id="session:legacy-confidence",
+                title_id="title:balatro",
+                exe_id="path:d:\\games\\balatro\\balatro.exe",
+                started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                ended_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                confidence=RuntimeConfidence.EXACT,
+            )
+        ]
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET confidence = ? WHERE session_id = ?",
+            ("legacy", "session:legacy-confidence"),
+        )
+        conn.commit()
+
+    ReporterService().render_sessions(
+        SessionsRequest(
+            db_path=db_path,
+            theme="mono",
+            density="comfortable",
+            title=None,
+            days=30,
+            limit=10,
+        )
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Balatro" in output
+    assert "UNKNOWN" in output
+
+
+def test_render_sessions_displays_open_session_runtime_as_unknown(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "playtrace.db"
+    db = Database(db_path)
+    db.bootstrap()
+
+    db.replace_titles([_title(title_id="title:balatro", title="Balatro")])
+    db.replace_sessions(
+        [
+            _session(
+                session_id="session:open",
+                title_id="title:balatro",
+                exe_id="path:d:\\games\\balatro\\balatro.exe",
+                started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                ended_at=None,
+                confidence=RuntimeConfidence.UNKNOWN,
+            )
+        ]
+    )
+
+    ReporterService().render_sessions(
+        SessionsRequest(
+            db_path=db_path,
+            theme="mono",
+            density="comfortable",
+            title=None,
+            days=30,
+            limit=10,
+        )
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Balatro" in output
+    assert "0h 00m" not in output
+
+
 def _title(
     *,
     title_id: str,
@@ -170,9 +248,13 @@ def _session(
     title_id: str | None,
     exe_id: str,
     started_at: datetime,
-    ended_at: datetime,
+    ended_at: datetime | None,
     confidence: RuntimeConfidence,
 ) -> SessionRecord:
+    duration_seconds = None
+    if ended_at is not None:
+        duration_seconds = int((ended_at - started_at).total_seconds())
+
     return SessionRecord(
         session_id=session_id,
         title_id=title_id,
@@ -180,7 +262,7 @@ def _session(
         user_sid="S-1-5-21-demo",
         started_at=started_at,
         ended_at=ended_at,
-        duration_seconds=int((ended_at - started_at).total_seconds()),
+        duration_seconds=duration_seconds,
         foreground_seconds=1800,
         bytes_in=0,
         bytes_out=0,

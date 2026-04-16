@@ -43,6 +43,12 @@ def format_timestamp(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%d %H:%M")
 
 
+def format_session_runtime(session: SessionRecord) -> str:
+    if session.duration_seconds is None:
+        return "—"
+    return format_duration(session.duration_seconds)
+
+
 def sessions_table(rows: list[tuple[str, SessionRecord]]) -> Table:
     table = Table(show_header=True, header_style="bold")
     table.add_column("Title", ratio=3)
@@ -57,7 +63,7 @@ def sessions_table(rows: list[tuple[str, SessionRecord]]) -> Table:
             title,
             format_timestamp(session.started_at),
             format_timestamp(session.ended_at),
-            format_duration(session.duration_seconds or 0),
+            format_session_runtime(session),
             session.confidence.value.upper(),
             session.user_sid or "—",
         )
