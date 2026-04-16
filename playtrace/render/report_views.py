@@ -6,7 +6,7 @@ from rich.text import Text
 
 from playtrace.models.report import ReportSnapshot
 from playtrace.render.cards import metric_cards
-from playtrace.render.tables import format_duration, titles_table
+from playtrace.render.tables import format_duration, sessions_table, titles_table
 from playtrace.render.theme import Theme
 
 
@@ -35,6 +35,16 @@ def render_report(console: Console, theme: Theme, snapshot: ReportSnapshot) -> N
     console.print()
     console.print(Text("Top Titles", style=f"bold {theme.text}"))
     console.print(titles_table(snapshot.top_titles))
+    if not snapshot.top_titles:
+        console.print(Text("No titles have been reconstructed yet.", style=theme.dim))
+
+    console.print()
+    console.print(Text("Recent Sessions", style=f"bold {theme.text}"))
+    console.print(
+        sessions_table(list(zip(snapshot.recent_session_titles, snapshot.recent_sessions, strict=False)))
+    )
+    if not snapshot.recent_sessions:
+        console.print(Text("No sessions have been reconstructed yet.", style=theme.dim))
 
     if snapshot.warnings:
         console.print()
