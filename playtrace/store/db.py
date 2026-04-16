@@ -450,6 +450,24 @@ class Database:
         evidence_types = {str(row["evidence_type"]) for row in rows}
         return sources, evidence_types
 
+    def load_latest_scan_context(self) -> tuple[str | None, datetime | None]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    host_name,
+                    COALESCE(finished_at, started_at) AS latest_at
+                FROM scan_runs
+                ORDER BY COALESCE(finished_at, started_at) DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        if row is None:
+            return None, None
+        latest_at = datetime.fromisoformat(row["latest_at"]) if row["latest_at"] else None
+        return row["host_name"], latest_at
+
     def count_sessions(self) -> int:
         with self.connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS session_count FROM sessions").fetchone()
