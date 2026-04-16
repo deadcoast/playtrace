@@ -437,6 +437,53 @@ class Database:
             )
             conn.commit()
 
+    def load_evidence_inventory(self) -> tuple[set[str], set[str]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT source, evidence_type
+                FROM evidence_links
+                """
+            ).fetchall()
+
+        sources = {str(row["source"]) for row in rows}
+        evidence_types = {str(row["evidence_type"]) for row in rows}
+        return sources, evidence_types
+
+    def count_sessions(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS session_count FROM sessions").fetchone()
+        return int(row["session_count"] or 0)
+
+    def count_duplicate_title_groups(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS duplicate_groups
+                FROM (
+                    SELECT LOWER(title) AS normalized_title
+                    FROM titles
+                    GROUP BY LOWER(title)
+                    HAVING COUNT(*) > 1
+                )
+                """
+            ).fetchone()
+        return int(row["duplicate_groups"] or 0)
+
+    def count_unmapped_executables(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS unmapped_executables
+                FROM executables
+                LEFT JOIN title_executables
+                  ON title_executables.exe_id = executables.exe_id
+                WHERE title_executables.title_id IS NULL
+                  AND executables.ignored = 0
+                """
+            ).fetchone()
+        return int(row["unmapped_executables"] or 0)
+
     def load_snapshot(self, limit: int) -> ReportSnapshot:
         with self.connect() as conn:
             title_rows = conn.execute(
@@ -467,16 +514,6 @@ class Database:
                 """,
                 (limit,),
             ).fetchall()
-            unmapped_row = conn.execute(
-                """
-                SELECT COUNT(*) AS unmapped_executables
-                FROM executables
-                LEFT JOIN title_executables
-                  ON title_executables.exe_id = executables.exe_id
-                WHERE title_executables.title_id IS NULL
-                  AND executables.ignored = 0
-                """
-            ).fetchone()
 
         titles: list[TitleAggregate] = []
         recent_sessions: list[SessionRecord] = []
@@ -549,7 +586,7 @@ class Database:
                 confirmed_runtime_seconds=int(total_row["confirmed_runtime_seconds"] or 0),
                 estimated_runtime_seconds=int(total_row["estimated_runtime_seconds"] or 0),
                 confirmed_sessions=int(total_row["confirmed_sessions"] or 0),
-                unmapped_executables=int(unmapped_row["unmapped_executables"] or 0),
+                unmapped_executables=self.count_unmapped_executables(),
             ),
             top_titles=titles,
             recent_sessions=recent_sessions,

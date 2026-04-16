@@ -3,13 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from playtrace.models.evidence import EvidenceRecord, RawArtifact
+from playtrace.models.evidence import RawArtifact
 from playtrace.models.doctor import DoctorFinding, DoctorSnapshot
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 from playtrace.parsers.bam import BamParser
 from playtrace.parsers.srum import SrumParser
 from playtrace.services.doctor import DoctorRequest, DoctorService
-from playtrace.store.db import Database
 
 
 def test_srum_parser_emits_activity_windows() -> None:
@@ -55,76 +54,28 @@ def test_bam_parser_emits_weak_execution_evidence() -> None:
     assert records[0].strength == EvidenceStrength.WEAK
 
 
-def test_doctor_reports_exact_runtime_coverage_expectations(tmp_path: Path) -> None:
-    db_path = tmp_path / "playtrace.db"
-    db = Database(db_path)
-    db.bootstrap()
+def test_doctor_render_includes_remediation_guidance(tmp_path: Path, capsys) -> None:
+    class StubAuditService:
+        def load(self, request: object) -> DoctorSnapshot:
+            return DoctorSnapshot(
+                environment_findings=[
+                    DoctorFinding(
+                        severity="warn",
+                        code="not-admin",
+                        summary="Administrator access is disabled.",
+                        remediation=["Relaunch the shell as Administrator and run `playtrace scan` again."],
+                    )
+                ],
+                data_findings=[],
+            )
 
-    scan_run_id = db.create_scan_run(["security_log", "prefetch"])
-    artifacts = [
-        RawArtifact(
-            artifact_id="artifact:start",
-            scan_run_id=scan_run_id,
-            source=SourceName.SECURITY_LOG,
-            observed_at=datetime(2026, 4, 11, 18, 42, 3, tzinfo=timezone.utc),
-            raw_ref="security_log:4688:15320",
-            payload={"exe_path": r"D:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe"},
-        ),
-        RawArtifact(
-            artifact_id="artifact:end",
-            scan_run_id=scan_run_id,
-            source=SourceName.SECURITY_LOG,
-            observed_at=datetime(2026, 4, 11, 18, 52, 3, tzinfo=timezone.utc),
-            raw_ref="security_log:4689:15320",
-            payload={"exe_path": r"D:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe"},
-        ),
-        RawArtifact(
-            artifact_id="artifact:prefetch",
-            scan_run_id=scan_run_id,
-            source=SourceName.PREFETCH,
-            observed_at=datetime(2026, 4, 11, 18, 42, 5, tzinfo=timezone.utc),
-            raw_ref="prefetch:ELDENRING.EXE-1A2B3C4D.pf",
-            payload={"exe_path": r"D:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe"},
-        ),
-    ]
-    evidence = [
-        EvidenceRecord(
-            evidence_id="evidence:start",
-            artifact_id="artifact:start",
-            source=SourceName.SECURITY_LOG,
-            evidence_type=EvidenceType.PROCESS_START,
-            observed_at=datetime(2026, 4, 11, 18, 42, 3, tzinfo=timezone.utc),
-            strength=EvidenceStrength.EXACT,
-            value={},
-        ),
-        EvidenceRecord(
-            evidence_id="evidence:end",
-            artifact_id="artifact:end",
-            source=SourceName.SECURITY_LOG,
-            evidence_type=EvidenceType.PROCESS_EXIT,
-            observed_at=datetime(2026, 4, 11, 18, 52, 3, tzinfo=timezone.utc),
-            strength=EvidenceStrength.EXACT,
-            value={},
-        ),
-        EvidenceRecord(
-            evidence_id="evidence:prefetch",
-            artifact_id="artifact:prefetch",
-            source=SourceName.PREFETCH,
-            evidence_type=EvidenceType.EXECUTION_COUNT,
-            observed_at=datetime(2026, 4, 11, 18, 42, 5, tzinfo=timezone.utc),
-            strength=EvidenceStrength.STRONG,
-            value={},
-        ),
-    ]
-    db.replace_artifacts_for_scan(scan_run_id, artifacts)
-    db.replace_evidence_for_scan(scan_run_id, evidence)
-    db.finish_scan_run(scan_run_id, [])
+    DoctorService(audit_service=StubAuditService()).render(
+        DoctorRequest(db_path=tmp_path / "playtrace.db", theme="mono")
+    )
 
-    snapshot = DoctorService().load(DoctorRequest(db_path=db_path, theme="mono"))
-
-    assert snapshot.exact_runtime_support == "available"
-    assert "prefetch" in snapshot.supporting_sources
-    assert any("exact runtime" in line.lower() for line in snapshot.guidance)
+    output = capsys.readouterr().out
+    assert "How to correct this" in output
+    assert "Administrator" in output
 
 
 def test_doctor_snapshot_can_hold_environment_and_data_findings() -> None:

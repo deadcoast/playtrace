@@ -9,7 +9,7 @@ from playtrace.services.doctor import DoctorRequest, DoctorService
 
 
 def register_doctor(app: typer.Typer) -> None:
-    @app.command("doctor")
+    @app.command("doctor", help="Audit environment prerequisites and persisted data quality.")
     def doctor(
         db: DatabaseOption = Path("playtrace.db"),
         theme: ThemeOption = "midnight",
