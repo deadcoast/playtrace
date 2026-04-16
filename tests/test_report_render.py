@@ -392,6 +392,33 @@ def test_render_sessions_displays_open_session_runtime_as_unknown(tmp_path: Path
     assert "0h 00m" not in output
 
 
+def test_render_report_duplicates_flag_surfaces_candidate_groups(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "playtrace.db"
+    db = Database(db_path)
+    db.bootstrap()
+    db.replace_titles(
+        [
+            _title(title_id="title:elden-ring", title="ELDEN RING"),
+            _title(title_id="title:eldenring", title="eldenring"),
+        ]
+    )
+
+    ReporterService().render_default(
+        ReportRequest(
+            db_path=db_path,
+            config_path=None,
+            theme="mono",
+            density="comfortable",
+            limit=5,
+            show_duplicates=True,
+        )
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Duplicate Candidates" in output
+
+
 def _title(
     *,
     title_id: str,

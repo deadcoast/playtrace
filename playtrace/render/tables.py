@@ -5,6 +5,7 @@ from datetime import datetime
 from rich.table import Table
 
 from playtrace.models.session import SessionRecord
+from playtrace.models.report import DuplicateCandidate
 from playtrace.models.title import TitleAggregate
 from playtrace.render.badges import confidence_badge
 
@@ -66,6 +67,22 @@ def sessions_table(rows: list[tuple[str, SessionRecord]]) -> Table:
             format_session_runtime(session),
             session.confidence.value.upper(),
             session.user_sid or "—",
+        )
+
+    return table
+
+
+def duplicate_candidates_table(candidates: list[DuplicateCandidate]) -> Table:
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Primary", ratio=2)
+    table.add_column("Related", ratio=3)
+    table.add_column("Reason", ratio=2)
+
+    for candidate in candidates:
+        table.add_row(
+            candidate.primary_title,
+            ", ".join(candidate.related_titles),
+            "; ".join(candidate.reasons) or "—",
         )
 
     return table

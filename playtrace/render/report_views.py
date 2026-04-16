@@ -6,7 +6,7 @@ from rich.text import Text
 
 from playtrace.models.report import ReportSnapshot
 from playtrace.render.cards import metric_cards
-from playtrace.render.tables import format_duration, sessions_table, titles_table
+from playtrace.render.tables import duplicate_candidates_table, format_duration, sessions_table, titles_table
 from playtrace.render.theme import Theme
 
 
@@ -45,6 +45,11 @@ def render_report(console: Console, theme: Theme, snapshot: ReportSnapshot) -> N
     )
     if not snapshot.recent_sessions:
         console.print(Text("No sessions have been reconstructed yet.", style=theme.dim))
+
+    if snapshot.duplicate_candidates:
+        console.print()
+        console.print(Text("Duplicate Candidates", style=f"bold {theme.text}"))
+        console.print(duplicate_candidates_table(snapshot.duplicate_candidates))
 
     if snapshot.warnings:
         console.print()

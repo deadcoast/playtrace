@@ -21,6 +21,7 @@ class ReportRequest:
     theme: str
     density: str
     limit: int
+    show_duplicates: bool = False
 
 
 @dataclass(slots=True)
@@ -48,7 +49,10 @@ class ReporterService:
     def build_report_snapshot(self, request: ReportRequest) -> ReportSnapshot:
         db = Database(request.db_path)
         db.bootstrap()
-        return db.load_snapshot(limit=request.limit)
+        snapshot = db.load_snapshot(limit=request.limit)
+        if request.show_duplicates:
+            snapshot.duplicate_candidates = db.load_duplicate_candidates()
+        return snapshot
 
     def render_default(self, request: ReportRequest) -> None:
         snapshot = self.build_report_snapshot(request)

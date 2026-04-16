@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -20,7 +21,7 @@ from playtrace.models.enums import (
 )
 from playtrace.models.executable import ExecutableIdentity
 from playtrace.models.mapping import UserMapping
-from playtrace.models.report import CoverageSummary, ReportSnapshot
+from playtrace.models.report import CoverageSummary, DuplicateCandidate, ReportSnapshot
 from playtrace.models.session import SessionRecord
 from playtrace.models.title import LaunchStats, RuntimeStats, TitleAggregate
 from playtrace.normalize.identity import IdentityNormalizer
@@ -537,6 +538,61 @@ class Database:
 
         return [self._title_from_row(row) for row in rows]
 
+    def load_duplicate_candidates(self) -> list[DuplicateCandidate]:
+        titles = self.load_titles(
+            sort_by="runtime",
+            classification=None,
+            launcher=None,
+            limit=10_000,
+        )
+        groups: dict[str, list[TitleAggregate]] = {}
+        for title in titles:
+            normalized = self._normalized_title_key(title.title)
+            if not normalized:
+                continue
+            groups.setdefault(normalized, []).append(title)
+
+        candidates: list[DuplicateCandidate] = []
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            primary = group[0]
+            related = group[1:]
+            candidates.append(
+                DuplicateCandidate(
+                    primary_title_id=primary.title_id,
+                    primary_title=primary.title,
+                    related_title_ids=[title.title_id for title in related],
+                    related_titles=[title.title for title in related],
+                    reasons=["normalized title collision"],
+                )
+            )
+        return candidates
+
+    def load_executable_targets_for_titles(self, title_ids: list[str]) -> dict[str, list[str]]:
+        if not title_ids:
+            return {}
+
+        placeholders = ", ".join("?" for _ in title_ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    title_executables.title_id,
+                    COALESCE(executables.normalized_key, executables.exe_id) AS mapping_target
+                FROM title_executables
+                JOIN executables ON executables.exe_id = title_executables.exe_id
+                WHERE title_executables.title_id IN ({placeholders})
+                ORDER BY title_executables.title_id ASC, executables.exe_id ASC
+                """,
+                tuple(title_ids),
+            ).fetchall()
+
+        targets: dict[str, list[str]] = {title_id: [] for title_id in title_ids}
+        for row in rows:
+            targets.setdefault(row["title_id"], []).append(row["mapping_target"])
+        return targets
+
     def load_sessions(
         self,
         *,
@@ -702,3 +758,6 @@ class Database:
 
     def _json_list(self, value: str | None) -> list[str]:
         return json.loads(value or "[]")
+
+    def _normalized_title_key(self, title: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", title.casefold())
