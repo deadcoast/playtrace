@@ -141,7 +141,21 @@ Required behavior:
 - audit duplicate titles, fragmented sessions, unmapped executables, stale scans, sparse evidence, and weak confidence
 - include corrective guidance sections
 
-### Duplicate Remediation Surface
+### `playtrace inspect`, `playtrace sources`, `playtrace map`, and `playtrace export`
+
+Purpose:
+- expose detailed slices of the same reconstructed truth layer
+
+Required behavior:
+- read from shared normalized, reconstructed, and audited models
+- remain consistent with `scan`, `report`, `titles`, `sessions`, and `doctor`
+- surface unknowns, blocked evidence, and remediation context rather than failing on sparse data
+- adopt any breaking argument changes required to align with the recovered command model
+
+Must not:
+- depend on stale bespoke logic that disagrees with the primary snapshots
+
+### Duplicate Remediation Surface (`report --duplicates`, or equivalent report flag surface)
 
 Purpose:
 - surface suspected duplicate groups and give the user a safe path to resolve them
@@ -400,11 +414,15 @@ This is one recovery initiative, but it should still be implemented in phases.
 ### Phase 2: Recover the Command Semantics
 
 - `scan`
+- `me`
 - `titles`
 - `sessions`
 - `report`
 - `doctor`
-- `me`
+- `inspect`
+- `sources`
+- `map`
+- `export`
 
 ### Phase 3: Raise the Visual Quality Bar
 
@@ -431,4 +449,3 @@ Playtrace is recovered when:
 - `scan` feels alive
 - `me` feels polished
 - `doctor` finds real problems and explains how to fix them
-
