@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `playtrace me`, a stored-data identity dashboard with optional `--refresh` scanning.
+- Added a structured audit engine for environment and persisted-data findings, plus remediation-aware `doctor` rendering.
+- Added duplicate candidate surfacing in `report` and aggressive heuristic merging through `playtrace map --auto`.
+- Added snapshot-driven export output and broader regression coverage across recovered CLI surfaces.
+
+### Changed
+
+- Reworked `scan` to render a source-status matrix and final summary instead of exiting silently.
+- Rebuilt `report`, `titles`, and `sessions` on shared snapshot loaders and removed the remaining stub paths.
+- Reintegrated `inspect`, `sources`, and `export` onto the same recovered truth layer used by the primary commands.
+- Raised the baseline visual structure across `scan`, `me`, `report`, and `doctor` with clearer dashboard sections and degraded-state handling.
+
 ## [0.1.0] - 2026-04-14
 
 ### Added
