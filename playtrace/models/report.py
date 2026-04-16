@@ -21,6 +21,7 @@ class ReportSnapshot:
     generated_at: datetime
     host_name: str
     coverage: CoverageSummary
+    stale_data: bool = False
     top_titles: list[TitleAggregate] = field(default_factory=list)
     recent_sessions: list[SessionRecord] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)

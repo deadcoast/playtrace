@@ -15,6 +15,7 @@ from playtrace.models.enums import (
     ConfidenceLevel,
     EvidenceStrength,
     EvidenceType,
+    RuntimeConfidence,
     SourceName,
 )
 from playtrace.models.executable import ExecutableIdentity
@@ -457,35 +458,82 @@ class Database:
                 FROM titles
                 """
             ).fetchone()
+            recent_session_rows = conn.execute(
+                """
+                SELECT *
+                FROM sessions
+                ORDER BY COALESCE(ended_at, started_at) DESC, session_id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            unmapped_row = conn.execute(
+                """
+                SELECT COUNT(*) AS unmapped_executables
+                FROM executables
+                LEFT JOIN title_executables
+                  ON title_executables.exe_id = executables.exe_id
+                WHERE title_executables.title_id IS NULL
+                  AND executables.ignored = 0
+                """
+            ).fetchone()
 
         titles: list[TitleAggregate] = []
+        recent_sessions: list[SessionRecord] = []
 
         for row in title_rows:
             titles.append(
                 TitleAggregate(
                     title_id=row["title_id"],
                     title=row["title"],
-                    classification=Classification(row["classification"]),
-                    classification_confidence=ConfidenceLevel(row["classification_confidence"]),
-                    title_confidence=ConfidenceLevel(row["title_confidence"]),
+                    classification=self._optional_enum(Classification, row["classification"]) or Classification.UNKNOWN,
+                    classification_confidence=self._optional_enum(
+                        ConfidenceLevel, row["classification_confidence"]
+                    )
+                    or ConfidenceLevel.UNKNOWN,
+                    title_confidence=self._optional_enum(ConfidenceLevel, row["title_confidence"])
+                    or ConfidenceLevel.UNKNOWN,
                     launcher=row["launcher"],
                     runtime=RuntimeStats(
-                        confirmed_seconds=int(row["confirmed_seconds"]),
-                        estimated_seconds=int(row["estimated_seconds"]),
-                        foreground_seconds=int(row["foreground_seconds"]),
-                        confidence=ConfidenceLevel(row["runtime_confidence"]),
+                        confirmed_seconds=int(row["confirmed_seconds"] or 0),
+                        estimated_seconds=int(row["estimated_seconds"] or 0),
+                        foreground_seconds=int(row["foreground_seconds"] or 0),
+                        confidence=self._optional_enum(ConfidenceLevel, row["runtime_confidence"])
+                        or ConfidenceLevel.UNKNOWN,
                     ),
                     launches=LaunchStats(
-                        confirmed=int(row["launches_confirmed"]),
-                        inferred=int(row["launches_inferred"]),
-                        gui=int(row["launches_gui"]),
-                        confidence=ConfidenceLevel(row["launches_confidence"]),
+                        confirmed=int(row["launches_confirmed"] or 0),
+                        inferred=int(row["launches_inferred"] or 0),
+                        gui=int(row["launches_gui"] or 0),
+                        confidence=self._optional_enum(ConfidenceLevel, row["launches_confidence"])
+                        or ConfidenceLevel.UNKNOWN,
                     ),
                     first_seen=datetime.fromisoformat(row["first_seen"]) if row["first_seen"] else None,
                     last_seen=datetime.fromisoformat(row["last_seen"]) if row["last_seen"] else None,
-                    evidence_sources=json.loads(row["evidence_sources"]),
-                    tags=json.loads(row["tags"]),
-                    notes=json.loads(row["notes"]),
+                    evidence_sources=json.loads(row["evidence_sources"] or "[]"),
+                    tags=json.loads(row["tags"] or "[]"),
+                    notes=json.loads(row["notes"] or "[]"),
+                )
+            )
+
+        for row in recent_session_rows:
+            recent_sessions.append(
+                SessionRecord(
+                    session_id=row["session_id"],
+                    title_id=row["title_id"],
+                    exe_id=row["exe_id"],
+                    user_sid=row["user_sid"],
+                    started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
+                    ended_at=datetime.fromisoformat(row["ended_at"]) if row["ended_at"] else None,
+                    duration_seconds=row["duration_seconds"],
+                    foreground_seconds=int(row["foreground_seconds"] or 0),
+                    bytes_in=int(row["bytes_in"] or 0),
+                    bytes_out=int(row["bytes_out"] or 0),
+                    confidence=self._optional_enum(RuntimeConfidence, row["confidence"]) or RuntimeConfidence.UNKNOWN,
+                    evidence_sources=json.loads(row["evidence_sources"] or "[]"),
+                    evidence_ids=json.loads(row["evidence_ids"] or "[]"),
+                    parent_chain=json.loads(row["parent_chain"] or "[]"),
+                    notes=json.loads(row["notes"] or "[]"),
                 )
             )
 
@@ -501,10 +549,10 @@ class Database:
                 confirmed_runtime_seconds=int(total_row["confirmed_runtime_seconds"] or 0),
                 estimated_runtime_seconds=int(total_row["estimated_runtime_seconds"] or 0),
                 confirmed_sessions=int(total_row["confirmed_sessions"] or 0),
-                unmapped_executables=0,
+                unmapped_executables=int(unmapped_row["unmapped_executables"] or 0),
             ),
             top_titles=titles,
-            recent_sessions=[],
+            recent_sessions=recent_sessions,
             warnings=warnings,
         )
 

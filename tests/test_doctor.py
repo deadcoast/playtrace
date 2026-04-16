@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
+from playtrace.models.doctor import DoctorFinding, DoctorSnapshot
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 from playtrace.parsers.bam import BamParser
 from playtrace.parsers.srum import SrumParser
@@ -124,3 +125,25 @@ def test_doctor_reports_exact_runtime_coverage_expectations(tmp_path: Path) -> N
     assert snapshot.exact_runtime_support == "available"
     assert "prefetch" in snapshot.supporting_sources
     assert any("exact runtime" in line.lower() for line in snapshot.guidance)
+
+
+def test_doctor_snapshot_can_hold_environment_and_data_findings() -> None:
+    snapshot = DoctorSnapshot(
+        environment_findings=[],
+        data_findings=[
+            DoctorFinding(
+                severity="warn",
+                code="missing-sessions",
+                summary="No sessions available",
+            )
+        ],
+    )
+
+    assert snapshot.environment_findings == []
+    assert snapshot.data_findings == [
+        DoctorFinding(
+            severity="warn",
+            code="missing-sessions",
+            summary="No sessions available",
+        )
+    ]
