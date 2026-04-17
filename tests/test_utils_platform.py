@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import platform
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+import playtrace.utils.platform as platform_module
 
 from playtrace.utils.platform import PlatformDetector
 
@@ -35,3 +37,12 @@ def test_detect_returns_empty_windows_fields_on_non_windows(monkeypatch) -> None
     assert info.system_directory is None
     assert info.program_files is None
     assert info.user_profile is None
+
+
+def test_get_system_directory_preserves_windows_separators_across_path_flavors(monkeypatch) -> None:
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
+    monkeypatch.setattr(platform_module, "Path", PurePosixPath)
+
+    system_directory = PlatformDetector._get_system_directory()
+
+    assert str(system_directory) == r"C:\Windows\System32"

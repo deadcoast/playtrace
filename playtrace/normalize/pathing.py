@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import ntpath
 import os
+import re
 from pathlib import Path, PureWindowsPath
 
 
 class PathNormalizer:
+    _WINDOWS_ENV_VAR_PATTERN = re.compile(r"%([^%]+)%")
+
     def normalize(self, path: str | None) -> str | None:
         if path is None:
             return None
@@ -24,10 +27,18 @@ class PathNormalizer:
         return path
 
     def _expand_variables(self, path: str) -> str:
-        return os.path.expandvars(path)
+        expanded = os.path.expandvars(path)
+        return self._WINDOWS_ENV_VAR_PATTERN.sub(
+            lambda match: os.environ.get(match.group(1), match.group(0)),
+            expanded,
+        )
 
     def _to_absolute(self, path: str) -> str:
-        if ntpath.isabs(path) or path.startswith("\\\\"):
+        if (
+            ntpath.isabs(path)
+            or path.startswith("\\\\")
+            or self._WINDOWS_ENV_VAR_PATTERN.search(path)
+        ):
             return path
         return str(Path(path).resolve())
 

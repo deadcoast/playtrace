@@ -46,3 +46,9 @@ def test_identity_normalizer_expands_environment_variables_in_targets(monkeypatc
     )
 
     assert target == r"path:c:\games\elden ring\eldenring.exe"
+
+
+def test_identity_normalizer_does_not_treat_uris_as_paths() -> None:
+    target = IdentityNormalizer().normalize_executable_target("steam://rungameid/1245620")
+
+    assert target is None

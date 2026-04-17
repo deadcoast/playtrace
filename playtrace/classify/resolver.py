@@ -32,6 +32,13 @@ class ResolveResult:
 
 
 class TitleResolver:
+    _CONFIDENCE_ORDER = {
+        ConfidenceLevel.HIGH: 0,
+        ConfidenceLevel.MEDIUM: 1,
+        ConfidenceLevel.LOW: 2,
+        ConfidenceLevel.UNKNOWN: 3,
+    }
+
     def resolve(
         self,
         executables: list[ExecutableIdentity],
@@ -214,7 +221,13 @@ class TitleResolver:
         for group in groups.values():
             if len(group) < 2:
                 continue
-            primary = sorted(group, key=lambda item: (item.title_confidence.value, item.title.casefold()))[0]
+            primary = sorted(
+                group,
+                key=lambda item: (
+                    self._CONFIDENCE_ORDER.get(item.title_confidence, 99),
+                    item.title.casefold(),
+                ),
+            )[0]
             related = [title for title in group if title.title_id != primary.title_id]
             candidates.append(
                 DuplicateCandidate(

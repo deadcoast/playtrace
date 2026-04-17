@@ -1,17 +1,30 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
+from playtrace.models.evidence import EvidenceRecord, RawArtifact
+from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 from playtrace.services.scanner import ScanRequest, ScannerService
 
 
 def test_scan_service_returns_source_statuses_and_final_summary(tmp_path: Path) -> None:
     request = ScanRequest(db_path=tmp_path / "playtrace.db", config_path=None, sources=[], full=False)
 
-    snapshot = ScannerService().run_for_snapshot(request)
+    snapshot = ScannerService(
+        collectors=[_SuccessfulCollector(), _FailingCollector()],
+        parsers=[_SuccessfulParser(), _PassthroughParser()],
+    ).run_for_snapshot(request)
 
-    assert snapshot.sources
-    assert snapshot.summary.total_artifacts >= 0
+    statuses = {status.source: status for status in snapshot.sources}
+
+    assert snapshot.summary.total_sources == 2
+    assert snapshot.summary.completed_sources == 1
+    assert snapshot.summary.total_artifacts == 1
+    assert snapshot.summary.total_evidence == 1
+    assert snapshot.summary.warning_count == 1
+    assert statuses["security_log"].status == "ready"
+    assert statuses["prefetch"].status == "collect_failed"
 
 
 def test_scan_command_never_finishes_without_rendering_summary(tmp_path: Path, capsys) -> None:
@@ -24,3 +37,61 @@ def test_scan_command_never_finishes_without_rendering_summary(tmp_path: Path, c
     assert "playtrace SCAN" in output
     assert "Summary" in output
     assert "Source Status" in output
+
+
+@dataclass(slots=True)
+class _SuccessfulCollector:
+    name: str = "security_log"
+
+    def is_available(self) -> bool:
+        return True
+
+    def collect(self, context) -> list[RawArtifact]:
+        return [
+            RawArtifact(
+                artifact_id="artifact:1",
+                scan_run_id=context.scan_run_id,
+                source=SourceName.SECURITY_LOG,
+                observed_at=None,
+                raw_ref="security_log:1",
+                payload={"exe_path": r"C:\Games\Balatro\balatro.exe"},
+            )
+        ]
+
+
+@dataclass(slots=True)
+class _FailingCollector:
+    name: str = "prefetch"
+
+    def is_available(self) -> bool:
+        return True
+
+    def collect(self, context) -> list[RawArtifact]:
+        raise RuntimeError("collector exploded")
+
+
+@dataclass(slots=True)
+class _SuccessfulParser:
+    name: str = "security_log"
+
+    def parse(self, artifacts) -> list[EvidenceRecord]:
+        assert len(artifacts) == 1
+        return [
+            EvidenceRecord(
+                evidence_id="evidence:1",
+                artifact_id=artifacts[0].artifact_id,
+                source=SourceName.SECURITY_LOG,
+                evidence_type=EvidenceType.PROCESS_START,
+                observed_at=None,
+                strength=EvidenceStrength.EXACT,
+                value={"exe_path": r"C:\Games\Balatro\balatro.exe"},
+            )
+        ]
+
+
+@dataclass(slots=True)
+class _PassthroughParser:
+    name: str = "prefetch"
+
+    def parse(self, artifacts) -> list[EvidenceRecord]:
+        return []

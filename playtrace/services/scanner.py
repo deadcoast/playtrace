@@ -88,7 +88,7 @@ class ScannerService:
 
         report_snapshot = db.load_snapshot(limit=5)
         completed_sources = sum(
-            1 for status in result.source_statuses if status.status not in {"pending", "unavailable"}
+            1 for status in result.source_statuses if status.status in {"collected", "ready", "empty"}
         )
 
         return ScanLiveSnapshot(

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from playtrace.store.db import Database
+from playtrace.utils.clock import Clock
 
 
 @dataclass(slots=True)
@@ -23,7 +24,10 @@ class ExporterService:
         format_name = request.format.lower()
 
         if format_name == "json":
-            payload = self._build_export_payload(db)
+            payload = self._build_export_payload(
+                snapshot=snapshot,
+                sessions=db.load_sessions(title=None, days=3650, limit=1000),
+            )
             request.output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             return
 
@@ -37,11 +41,9 @@ class ExporterService:
 
         raise ValueError(f"Unsupported export format: {request.format}")
 
-    def _build_export_payload(self, db: Database) -> dict[str, object]:
-        snapshot = db.load_snapshot(limit=250)
-        sessions = db.load_sessions(title=None, days=3650, limit=1000)
+    def _build_export_payload(self, *, snapshot, sessions) -> dict[str, object]:
         return {
-            "generated_at": snapshot.generated_at.isoformat(),
+            "generated_at": Clock.format_iso8601(snapshot.generated_at),
             "host_name": snapshot.host_name,
             "coverage": {
                 "tracked_titles": snapshot.coverage.tracked_titles,
@@ -69,8 +71,8 @@ class ExporterService:
                     "session_id": session.session_id,
                     "title_id": session.title_id,
                     "exe_id": session.exe_id,
-                    "started_at": session.started_at.isoformat() if session.started_at else None,
-                    "ended_at": session.ended_at.isoformat() if session.ended_at else None,
+                    "started_at": Clock.format_iso8601(session.started_at),
+                    "ended_at": Clock.format_iso8601(session.ended_at),
                     "duration_seconds": session.duration_seconds,
                     "confidence": session.confidence.value,
                 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import platform
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import ClassVar
 
 
@@ -50,7 +50,7 @@ class PlatformDetector:
         system_root = os.environ.get("SystemRoot")
         if not system_root:
             return None
-        return Path(system_root) / "System32"
+        return Path(str(PureWindowsPath(system_root) / "System32"))
 
     @staticmethod
     def _get_program_files() -> Path | None:

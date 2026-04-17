@@ -151,8 +151,8 @@ class IdentityNormalizer:
         stripped = value.strip()
         return (
             self._looks_like_windows_path(stripped)
-            or "%" in stripped
-            or "\\" in stripped
-            or "/" in stripped
+            or ("\\" in stripped)
+            or stripped.count("%") >= 2
+            or stripped.startswith((".\\", "./"))
             or stripped.lower().endswith(".exe")
         )

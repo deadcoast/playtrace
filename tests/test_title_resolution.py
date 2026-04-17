@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from playtrace.classify.resolver import TitleResolver
+from playtrace.classify.resolver import ResolvedTitle, TitleResolver
 from playtrace.merge.titles import TitleAggregator
 from playtrace.models.enums import Classification, ConfidenceLevel, RuntimeConfidence
 from playtrace.models.executable import ExecutableIdentity
@@ -176,6 +176,33 @@ def test_title_resolution_emits_duplicate_candidates_for_similar_executables() -
     )
 
     assert result.duplicate_candidates
+
+
+def test_duplicate_candidates_prefer_higher_confidence_titles() -> None:
+    medium = ResolvedTitle(
+        title_id="title:elden-ring",
+        title="ELDEN RING",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher="Steam",
+        primary_exe_id="exe:1",
+    )
+    low = ResolvedTitle(
+        title_id="title:eldenring",
+        title="eldenring",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.LOW,
+        launcher="Steam",
+        primary_exe_id="exe:2",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([low, medium])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title_id == "title:elden-ring"
+    assert candidates[0].primary_title == "ELDEN RING"
 
 
 def _exe(

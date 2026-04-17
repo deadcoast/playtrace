@@ -5,7 +5,7 @@
 This plan implements nine incomplete modules across four packages (utils, normalize, config, store) following the dependency order: utils → normalize → config → store. Each module includes implementation tasks with property-based tests for universal correctness properties and unit tests for specific examples. The implementation follows Python 3.12 conventions with typed interfaces, dataclasses with slots, and comprehensive error handling.
 
 Status: Verified complete against the recovery branch source on 2026-04-17.
-Validation: `uv run pytest` (`81 passed`) and the documented-scope targeted suite (`41 passed`).
+Validation: `uv run pytest` (`92 passed`) and the documented-scope targeted suite (`47 passed`).
 
 ## Tasks
 

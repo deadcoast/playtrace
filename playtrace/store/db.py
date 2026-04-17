@@ -477,18 +477,16 @@ class Database:
 
     def count_duplicate_title_groups(self) -> int:
         with self.connect() as conn:
-            row = conn.execute(
-                """
-                SELECT COUNT(*) AS duplicate_groups
-                FROM (
-                    SELECT LOWER(title) AS normalized_title
-                    FROM titles
-                    GROUP BY LOWER(title)
-                    HAVING COUNT(*) > 1
-                )
-                """
-            ).fetchone()
-        return int(row["duplicate_groups"] or 0)
+            rows = conn.execute("SELECT title FROM titles").fetchall()
+
+        groups: dict[str, int] = {}
+        for row in rows:
+            normalized = self._normalized_title_key(row["title"] or "")
+            if not normalized:
+                continue
+            groups[normalized] = groups.get(normalized, 0) + 1
+
+        return sum(1 for count in groups.values() if count > 1)
 
     def count_unmapped_executables(self) -> int:
         with self.connect() as conn:
@@ -557,8 +555,15 @@ class Database:
         for group in groups.values():
             if len(group) < 2:
                 continue
-            primary = group[0]
-            related = group[1:]
+            primary = sorted(
+                group,
+                key=lambda item: (
+                    self._title_confidence_rank(item.title_confidence),
+                    -(item.runtime.confirmed_seconds + item.runtime.estimated_seconds),
+                    item.title.casefold(),
+                ),
+            )[0]
+            related = [title for title in group if title.title_id != primary.title_id]
             candidates.append(
                 DuplicateCandidate(
                     primary_title_id=primary.title_id,
@@ -602,7 +607,7 @@ class Database:
         limit: int,
     ) -> list[tuple[str, SessionRecord]]:
         cutoff = self._utc_now() - timedelta(days=days)
-        filters = ["COALESCE(sessions.ended_at, sessions.started_at) >= ?"]
+        filters = ["julianday(COALESCE(sessions.ended_at, sessions.started_at)) >= julianday(?)"]
         params: list[object] = [self._format_dt(cutoff)]
         if title:
             filters.append("LOWER(COALESCE(titles.title, sessions.title_id, sessions.exe_id)) LIKE ?")
@@ -615,7 +620,7 @@ class Database:
             FROM sessions
             LEFT JOIN titles ON titles.title_id = sessions.title_id
             WHERE {' AND '.join(filters)}
-            ORDER BY COALESCE(sessions.ended_at, sessions.started_at) DESC, sessions.session_id DESC
+            ORDER BY julianday(COALESCE(sessions.ended_at, sessions.started_at)) DESC, sessions.session_id DESC
             LIMIT ?
         """
         params.append(limit)
@@ -648,7 +653,7 @@ class Database:
                     COUNT(*) AS tracked_titles,
                     COALESCE(SUM(confirmed_seconds), 0) AS confirmed_runtime_seconds,
                     COALESCE(SUM(estimated_seconds), 0) AS estimated_runtime_seconds,
-                    COALESCE(SUM(launches_confirmed), 0) AS confirmed_sessions
+                    (SELECT COUNT(*) FROM sessions) AS confirmed_sessions
                 FROM titles
                 """
             ).fetchone()
@@ -659,7 +664,7 @@ class Database:
                     titles.title AS resolved_title
                 FROM sessions
                 LEFT JOIN titles ON titles.title_id = sessions.title_id
-                ORDER BY COALESCE(sessions.ended_at, sessions.started_at) DESC, sessions.session_id DESC
+                ORDER BY julianday(COALESCE(sessions.ended_at, sessions.started_at)) DESC, sessions.session_id DESC
                 LIMIT ?
                 """,
                 (limit,),
@@ -768,3 +773,12 @@ class Database:
 
     def _normalized_title_key(self, title: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", title.casefold())
+
+    def _title_confidence_rank(self, confidence: ConfidenceLevel) -> int:
+        ranks = {
+            ConfidenceLevel.HIGH: 0,
+            ConfidenceLevel.MEDIUM: 1,
+            ConfidenceLevel.LOW: 2,
+            ConfidenceLevel.UNKNOWN: 3,
+        }
+        return ranks.get(confidence, 99)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path, PureWindowsPath
 
 from playtrace.normalize.pathing import PathNormalizer
@@ -28,3 +29,12 @@ def test_normalize_returns_none_for_empty_values() -> None:
 
     assert normalizer.normalize(None) is None
     assert normalizer.normalize("   ") is None
+
+
+def test_normalize_expands_windows_style_variables_even_without_host_support(monkeypatch) -> None:
+    monkeypatch.setenv("PLAYTRACE_GAMES", r"C:\Games")
+    monkeypatch.setattr(os.path, "expandvars", lambda value: value)
+
+    normalized = PathNormalizer().normalize(r"%PLAYTRACE_GAMES%\MyGame\Launcher.EXE")
+
+    assert normalized == r"c:\games\mygame\launcher.exe"

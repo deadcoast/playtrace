@@ -39,3 +39,31 @@ def test_export_service_writes_snapshot_driven_json(tmp_path: Path) -> None:
 
     assert output_path.exists()
     assert payload["coverage"]["tracked_titles"] == 1
+
+
+def test_export_service_reuses_loaded_snapshot_for_json(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "playtrace.db"
+    output_path = tmp_path / "out.json"
+    db = Database(db_path)
+    db.bootstrap()
+
+    original_load_snapshot = Database.load_snapshot
+    load_snapshot_calls = 0
+
+    def spy_load_snapshot(self, limit: int):
+        nonlocal load_snapshot_calls
+        load_snapshot_calls += 1
+        return original_load_snapshot(self, limit)
+
+    monkeypatch.setattr(Database, "load_snapshot", spy_load_snapshot)
+
+    ExporterService().run(
+        ExportRequest(
+            db_path=db_path,
+            output_path=output_path,
+            format="json",
+        )
+    )
+
+    assert output_path.exists()
+    assert load_snapshot_calls == 1
