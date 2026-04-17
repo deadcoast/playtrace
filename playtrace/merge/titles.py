@@ -20,7 +20,8 @@ class TitleAggregator:
         mappings: list[UserMapping] | None = None,
     ) -> list[TitleAggregate]:
         aggregates: list[TitleAggregate] = []
-        for resolved in self.resolver.resolve(executables, sessions, mappings):
+        resolved_result = self.resolver.resolve(executables, sessions, mappings)
+        for resolved in resolved_result.titles:
             title = TitleAggregate(
                 title_id=resolved.title_id,
                 title=resolved.title,

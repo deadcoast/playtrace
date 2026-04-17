@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import TypeVar
@@ -15,15 +16,17 @@ from playtrace.models.enums import (
     ConfidenceLevel,
     EvidenceStrength,
     EvidenceType,
+    RuntimeConfidence,
     SourceName,
 )
 from playtrace.models.executable import ExecutableIdentity
 from playtrace.models.mapping import UserMapping
-from playtrace.models.report import CoverageSummary, ReportSnapshot
+from playtrace.models.report import CoverageSummary, DuplicateCandidate, ReportSnapshot
 from playtrace.models.session import SessionRecord
 from playtrace.models.title import LaunchStats, RuntimeStats, TitleAggregate
 from playtrace.normalize.identity import IdentityNormalizer
 from playtrace.store.schema import SCHEMA_SQL
+from playtrace.utils.clock import Clock
 
 EnumT = TypeVar("EnumT", bound=Enum)
 
@@ -45,7 +48,7 @@ class Database:
 
     def create_scan_run(self, selected_sources: list[str]) -> str:
         scan_run_id = f"scan:{uuid4().hex}"
-        started_at = self._utc_now().isoformat()
+        started_at = self._format_dt(self._utc_now())
         host_name = socket.gethostname()
 
         with self.connect() as conn:
@@ -77,7 +80,7 @@ class Database:
                 WHERE scan_run_id = ?
                 """,
                 (
-                    self._utc_now().isoformat(),
+                    self._format_dt(self._utc_now()),
                     json.dumps(warnings),
                     scan_run_id,
                 ),
@@ -98,7 +101,7 @@ class Database:
                         artifact.artifact_id,
                         scan_run_id,
                         artifact.source.value,
-                        artifact.observed_at.isoformat() if artifact.observed_at else None,
+                        self._format_dt(artifact.observed_at),
                         artifact.raw_ref,
                         json.dumps(artifact.payload),
                     )
@@ -124,7 +127,7 @@ class Database:
                         record.artifact_id,
                         record.source.value,
                         record.evidence_type.value,
-                        record.observed_at.isoformat() if record.observed_at else None,
+                        self._format_dt(record.observed_at),
                         record.strength.value,
                         json.dumps(record.value),
                     )
@@ -151,7 +154,7 @@ class Database:
                     artifact_id=row["artifact_id"],
                     source=SourceName(row["source"]),
                     evidence_type=EvidenceType(row["evidence_type"]),
-                    observed_at=datetime.fromisoformat(row["observed_at"]) if row["observed_at"] else None,
+                    observed_at=self._parse_dt(row["observed_at"]),
                     strength=EvidenceStrength(row["strength"]),
                     value=json.loads(row["value"]),
                 )
@@ -181,7 +184,7 @@ class Database:
                     classification=classification,
                     launcher=row["launcher"],
                     ignore=bool(row["ignore"]),
-                    created_at=datetime.fromisoformat(row["created_at"]),
+                    created_at=self._parse_dt(row["created_at"]) or self._utc_now(),
                     normalized_key=normalizer.normalize_executable_target(row["target"]),
                     confidence=confidence,
                 )
@@ -214,8 +217,8 @@ class Database:
                         executable.classification.value,
                         executable.classification_confidence.value,
                         1 if executable.ignored else 0,
-                        executable.first_seen.isoformat() if executable.first_seen else None,
-                        executable.last_seen.isoformat() if executable.last_seen else None,
+                        self._format_dt(executable.first_seen),
+                        self._format_dt(executable.last_seen),
                     )
                     for executable in executables
                 ],
@@ -239,8 +242,8 @@ class Database:
                         session.title_id,
                         session.exe_id,
                         session.user_sid,
-                        session.started_at.isoformat() if session.started_at else None,
-                        session.ended_at.isoformat() if session.ended_at else None,
+                        self._format_dt(session.started_at),
+                        self._format_dt(session.ended_at),
                         session.duration_seconds,
                         session.foreground_seconds,
                         session.bytes_in,
@@ -285,8 +288,8 @@ class Database:
                         title.launches.inferred,
                         title.launches.gui,
                         title.launches.confidence.value,
-                        title.first_seen.isoformat() if title.first_seen else None,
-                        title.last_seen.isoformat() if title.last_seen else None,
+                        self._format_dt(title.first_seen),
+                        self._format_dt(title.last_seen),
                         json.dumps(title.evidence_sources),
                         json.dumps(title.tags),
                         json.dumps(title.notes),
@@ -374,8 +377,8 @@ class Database:
                     7,
                     19,
                     "high",
-                    (now - timedelta(days=120)).isoformat(),
-                    (now - timedelta(days=3)).isoformat(),
+                    self._format_dt(now - timedelta(days=120)),
+                    self._format_dt(now - timedelta(days=3)),
                     json.dumps(["security_log", "prefetch", "userassist", "srum"]),
                     json.dumps(["soulslike"]),
                     json.dumps([]),
@@ -395,8 +398,8 @@ class Database:
                     0,
                     31,
                     "high",
-                    (now - timedelta(days=240)).isoformat(),
-                    (now - timedelta(days=10)).isoformat(),
+                    self._format_dt(now - timedelta(days=240)),
+                    self._format_dt(now - timedelta(days=10)),
                     json.dumps(["prefetch", "userassist"]),
                     json.dumps(["roguelike"]),
                     json.dumps([]),
@@ -416,8 +419,8 @@ class Database:
                     63,
                     18,
                     "medium",
-                    (now - timedelta(days=60)).isoformat(),
-                    (now - timedelta(days=1)).isoformat(),
+                    self._format_dt(now - timedelta(days=60)),
+                    self._format_dt(now - timedelta(days=1)),
                     json.dumps(["prefetch", "userassist", "srum"]),
                     json.dumps(["deckbuilder"]),
                     json.dumps([]),
@@ -436,6 +439,203 @@ class Database:
             )
             conn.commit()
 
+    def load_evidence_inventory(self) -> tuple[set[str], set[str]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT source, evidence_type
+                FROM evidence_links
+                """
+            ).fetchall()
+
+        sources = {str(row["source"]) for row in rows}
+        evidence_types = {str(row["evidence_type"]) for row in rows}
+        return sources, evidence_types
+
+    def load_latest_scan_context(self) -> tuple[str | None, datetime | None]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    host_name,
+                    COALESCE(finished_at, started_at) AS latest_at
+                FROM scan_runs
+                ORDER BY COALESCE(finished_at, started_at) DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+        if row is None:
+            return None, None
+        latest_at = self._parse_dt(row["latest_at"])
+        return row["host_name"], latest_at
+
+    def count_sessions(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS session_count FROM sessions").fetchone()
+        return int(row["session_count"] or 0)
+
+    def count_duplicate_title_groups(self) -> int:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT title FROM titles").fetchall()
+
+        groups: dict[str, int] = {}
+        for row in rows:
+            normalized = self._normalized_title_key(row["title"] or "")
+            if not normalized:
+                continue
+            groups[normalized] = groups.get(normalized, 0) + 1
+
+        return sum(1 for count in groups.values() if count > 1)
+
+    def count_unmapped_executables(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS unmapped_executables
+                FROM executables
+                LEFT JOIN title_executables
+                  ON title_executables.exe_id = executables.exe_id
+                WHERE title_executables.title_id IS NULL
+                  AND executables.ignored = 0
+                """
+            ).fetchone()
+        return int(row["unmapped_executables"] or 0)
+
+    def load_titles(
+        self,
+        *,
+        sort_by: str,
+        classification: str | None,
+        launcher: str | None,
+        limit: int,
+    ) -> list[TitleAggregate]:
+        filters: list[str] = []
+        params: list[object] = []
+        if classification:
+            filters.append("classification = ?")
+            params.append(classification.lower())
+        if launcher:
+            filters.append("LOWER(COALESCE(launcher, '')) = ?")
+            params.append(launcher.lower())
+
+        order_by = {
+            "runtime": "(confirmed_seconds + estimated_seconds) DESC, title ASC",
+            "launches": "(launches_confirmed + launches_inferred) DESC, title ASC",
+            "last_seen": "last_seen DESC, title ASC",
+            "title": "title ASC",
+        }.get(sort_by, "(confirmed_seconds + estimated_seconds) DESC, title ASC")
+
+        query = "SELECT * FROM titles"
+        if filters:
+            query += " WHERE " + " AND ".join(filters)
+        query += f" ORDER BY {order_by} LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+
+        return [self._title_from_row(row) for row in rows]
+
+    def load_duplicate_candidates(self) -> list[DuplicateCandidate]:
+        titles = self.load_titles(
+            sort_by="runtime",
+            classification=None,
+            launcher=None,
+            limit=10_000,
+        )
+        groups: dict[str, list[TitleAggregate]] = {}
+        for title in titles:
+            normalized = self._normalized_title_key(title.title)
+            if not normalized:
+                continue
+            groups.setdefault(normalized, []).append(title)
+
+        candidates: list[DuplicateCandidate] = []
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            primary = sorted(
+                group,
+                key=lambda item: (
+                    self._title_confidence_rank(item.title_confidence),
+                    -(item.runtime.confirmed_seconds + item.runtime.estimated_seconds),
+                    item.title.casefold(),
+                ),
+            )[0]
+            related = [title for title in group if title.title_id != primary.title_id]
+            candidates.append(
+                DuplicateCandidate(
+                    primary_title_id=primary.title_id,
+                    primary_title=primary.title,
+                    related_title_ids=[title.title_id for title in related],
+                    related_titles=[title.title for title in related],
+                    reasons=["normalized title collision"],
+                )
+            )
+        return candidates
+
+    def load_executable_targets_for_titles(self, title_ids: list[str]) -> dict[str, list[str]]:
+        if not title_ids:
+            return {}
+
+        placeholders = ", ".join("?" for _ in title_ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    title_executables.title_id,
+                    COALESCE(executables.normalized_key, executables.exe_id) AS mapping_target
+                FROM title_executables
+                JOIN executables ON executables.exe_id = title_executables.exe_id
+                WHERE title_executables.title_id IN ({placeholders})
+                ORDER BY title_executables.title_id ASC, executables.exe_id ASC
+                """,
+                tuple(title_ids),
+            ).fetchall()
+
+        targets: dict[str, list[str]] = {title_id: [] for title_id in title_ids}
+        for row in rows:
+            targets.setdefault(row["title_id"], []).append(row["mapping_target"])
+        return targets
+
+    def load_sessions(
+        self,
+        *,
+        title: str | None,
+        days: int,
+        limit: int,
+    ) -> list[tuple[str, SessionRecord]]:
+        cutoff = self._utc_now() - timedelta(days=days)
+        filters = ["julianday(COALESCE(sessions.ended_at, sessions.started_at)) >= julianday(?)"]
+        params: list[object] = [self._format_dt(cutoff)]
+        if title:
+            filters.append("LOWER(COALESCE(titles.title, sessions.title_id, sessions.exe_id)) LIKE ?")
+            params.append(f"%{title.lower()}%")
+
+        query = f"""
+            SELECT
+                sessions.*,
+                titles.title AS resolved_title
+            FROM sessions
+            LEFT JOIN titles ON titles.title_id = sessions.title_id
+            WHERE {' AND '.join(filters)}
+            ORDER BY julianday(COALESCE(sessions.ended_at, sessions.started_at)) DESC, sessions.session_id DESC
+            LIMIT ?
+        """
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+
+        return [
+            (
+                row["resolved_title"] or row["title_id"] or row["exe_id"],
+                self._session_from_row(row),
+            )
+            for row in rows
+        ]
+
     def load_snapshot(self, limit: int) -> ReportSnapshot:
         with self.connect() as conn:
             title_rows = conn.execute(
@@ -453,41 +653,29 @@ class Database:
                     COUNT(*) AS tracked_titles,
                     COALESCE(SUM(confirmed_seconds), 0) AS confirmed_runtime_seconds,
                     COALESCE(SUM(estimated_seconds), 0) AS estimated_runtime_seconds,
-                    COALESCE(SUM(launches_confirmed), 0) AS confirmed_sessions
+                    (SELECT COUNT(*) FROM sessions) AS confirmed_sessions
                 FROM titles
                 """
             ).fetchone()
+            recent_session_rows = conn.execute(
+                """
+                SELECT
+                    sessions.*,
+                    titles.title AS resolved_title
+                FROM sessions
+                LEFT JOIN titles ON titles.title_id = sessions.title_id
+                ORDER BY julianday(COALESCE(sessions.ended_at, sessions.started_at)) DESC, sessions.session_id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
 
-        titles: list[TitleAggregate] = []
-
-        for row in title_rows:
-            titles.append(
-                TitleAggregate(
-                    title_id=row["title_id"],
-                    title=row["title"],
-                    classification=Classification(row["classification"]),
-                    classification_confidence=ConfidenceLevel(row["classification_confidence"]),
-                    title_confidence=ConfidenceLevel(row["title_confidence"]),
-                    launcher=row["launcher"],
-                    runtime=RuntimeStats(
-                        confirmed_seconds=int(row["confirmed_seconds"]),
-                        estimated_seconds=int(row["estimated_seconds"]),
-                        foreground_seconds=int(row["foreground_seconds"]),
-                        confidence=ConfidenceLevel(row["runtime_confidence"]),
-                    ),
-                    launches=LaunchStats(
-                        confirmed=int(row["launches_confirmed"]),
-                        inferred=int(row["launches_inferred"]),
-                        gui=int(row["launches_gui"]),
-                        confidence=ConfidenceLevel(row["launches_confidence"]),
-                    ),
-                    first_seen=datetime.fromisoformat(row["first_seen"]) if row["first_seen"] else None,
-                    last_seen=datetime.fromisoformat(row["last_seen"]) if row["last_seen"] else None,
-                    evidence_sources=json.loads(row["evidence_sources"]),
-                    tags=json.loads(row["tags"]),
-                    notes=json.loads(row["notes"]),
-                )
-            )
+        titles = [self._title_from_row(row) for row in title_rows]
+        recent_sessions = [self._session_from_row(row) for row in recent_session_rows]
+        recent_session_titles = [
+            row["resolved_title"] or row["title_id"] or row["exe_id"]
+            for row in recent_session_rows
+        ]
 
         warnings: list[str] = []
         if int(total_row["tracked_titles"] or 0) == 0:
@@ -501,15 +689,22 @@ class Database:
                 confirmed_runtime_seconds=int(total_row["confirmed_runtime_seconds"] or 0),
                 estimated_runtime_seconds=int(total_row["estimated_runtime_seconds"] or 0),
                 confirmed_sessions=int(total_row["confirmed_sessions"] or 0),
-                unmapped_executables=0,
+                unmapped_executables=self.count_unmapped_executables(),
             ),
             top_titles=titles,
-            recent_sessions=[],
+            recent_sessions=recent_sessions,
+            recent_session_titles=recent_session_titles,
             warnings=warnings,
         )
 
     def _utc_now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return Clock.utc_now()
+
+    def _format_dt(self, value: datetime | None) -> str | None:
+        return Clock.format_iso8601(value)
+
+    def _parse_dt(self, value: str | None) -> datetime | None:
+        return Clock.parse_iso8601(value)
 
     def _optional_enum(
         self,
@@ -522,3 +717,68 @@ class Database:
             return enum_type(value)
         except ValueError:
             return None
+
+    def _title_from_row(self, row: sqlite3.Row) -> TitleAggregate:
+        return TitleAggregate(
+            title_id=row["title_id"],
+            title=row["title"],
+            classification=self._optional_enum(Classification, row["classification"]) or Classification.UNKNOWN,
+            classification_confidence=self._optional_enum(ConfidenceLevel, row["classification_confidence"])
+            or ConfidenceLevel.UNKNOWN,
+            title_confidence=self._optional_enum(ConfidenceLevel, row["title_confidence"])
+            or ConfidenceLevel.UNKNOWN,
+            launcher=row["launcher"],
+            runtime=RuntimeStats(
+                confirmed_seconds=int(row["confirmed_seconds"] or 0),
+                estimated_seconds=int(row["estimated_seconds"] or 0),
+                foreground_seconds=int(row["foreground_seconds"] or 0),
+                confidence=self._optional_enum(ConfidenceLevel, row["runtime_confidence"])
+                or ConfidenceLevel.UNKNOWN,
+            ),
+            launches=LaunchStats(
+                confirmed=int(row["launches_confirmed"] or 0),
+                inferred=int(row["launches_inferred"] or 0),
+                gui=int(row["launches_gui"] or 0),
+                confidence=self._optional_enum(ConfidenceLevel, row["launches_confidence"])
+                or ConfidenceLevel.UNKNOWN,
+            ),
+            first_seen=self._parse_dt(row["first_seen"]),
+            last_seen=self._parse_dt(row["last_seen"]),
+            evidence_sources=self._json_list(row["evidence_sources"]),
+            tags=self._json_list(row["tags"]),
+            notes=self._json_list(row["notes"]),
+        )
+
+    def _session_from_row(self, row: sqlite3.Row) -> SessionRecord:
+        return SessionRecord(
+            session_id=row["session_id"],
+            title_id=row["title_id"],
+            exe_id=row["exe_id"],
+            user_sid=row["user_sid"],
+            started_at=self._parse_dt(row["started_at"]),
+            ended_at=self._parse_dt(row["ended_at"]),
+            duration_seconds=row["duration_seconds"],
+            foreground_seconds=int(row["foreground_seconds"] or 0),
+            bytes_in=int(row["bytes_in"] or 0),
+            bytes_out=int(row["bytes_out"] or 0),
+            confidence=self._optional_enum(RuntimeConfidence, row["confidence"]) or RuntimeConfidence.UNKNOWN,
+            evidence_sources=self._json_list(row["evidence_sources"]),
+            evidence_ids=self._json_list(row["evidence_ids"]),
+            parent_chain=self._json_list(row["parent_chain"]),
+            notes=self._json_list(row["notes"]),
+        )
+
+    def _json_list(self, value: str | None) -> list[str]:
+        return json.loads(value or "[]")
+
+    def _normalized_title_key(self, title: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", title.casefold())
+
+    def _title_confidence_rank(self, confidence: ConfidenceLevel) -> int:
+        ranks = {
+            ConfidenceLevel.HIGH: 0,
+            ConfidenceLevel.MEDIUM: 1,
+            ConfidenceLevel.LOW: 2,
+            ConfidenceLevel.UNKNOWN: 3,
+        }
+        return ranks.get(confidence, 99)

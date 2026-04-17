@@ -16,6 +16,14 @@ def register_report(app: typer.Typer) -> None:
         theme: ThemeOption = "midnight",
         density: DensityOption = "comfortable",
         limit: int = typer.Option(10, "--limit", min=1, help="Number of top titles to display."),
+        duplicates: bool = typer.Option(False, "--duplicates", help="Surface suspected duplicate title groups."),
     ) -> None:
-        request = ReportRequest(db_path=db, config_path=config, theme=theme, density=density, limit=limit)
+        request = ReportRequest(
+            db_path=db,
+            config_path=config,
+            theme=theme,
+            density=density,
+            limit=limit,
+            show_duplicates=duplicates,
+        )
         ReporterService().render_default(request)

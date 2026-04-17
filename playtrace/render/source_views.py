@@ -33,6 +33,8 @@ def render_sources(console: Console, theme: Theme, snapshot: SourcesSnapshot) ->
         )
 
     console.print(table)
+    if not snapshot.entries:
+        console.print(Text("No evidence matched this target.", style=theme.dim))
 
 
 def render_inspection(console: Console, theme: Theme, detail: InspectionDetail) -> None:

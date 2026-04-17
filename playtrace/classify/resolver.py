@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 
 from playtrace.classify.heuristics import choose_primary_executable
 from playtrace.classify.rules import classify_executable, infer_launcher_name
 from playtrace.models.enums import Classification, ConfidenceLevel
 from playtrace.models.executable import ExecutableIdentity
 from playtrace.models.mapping import UserMapping
+from playtrace.models.report import DuplicateCandidate
 from playtrace.models.session import SessionRecord
 
 
@@ -23,13 +25,26 @@ class ResolvedTitle:
     suppressed_executable_ids: list[str] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class ResolveResult:
+    titles: list[ResolvedTitle]
+    duplicate_candidates: list[DuplicateCandidate] = field(default_factory=list)
+
+
 class TitleResolver:
+    _CONFIDENCE_ORDER = {
+        ConfidenceLevel.HIGH: 0,
+        ConfidenceLevel.MEDIUM: 1,
+        ConfidenceLevel.LOW: 2,
+        ConfidenceLevel.UNKNOWN: 3,
+    }
+
     def resolve(
         self,
         executables: list[ExecutableIdentity],
         sessions: list[SessionRecord],
         mappings: list[UserMapping] | None = None,
-    ) -> list[ResolvedTitle]:
+    ) -> ResolveResult:
         mappings = mappings or []
         mapping_by_target = self._mapping_lookup(mappings)
 
@@ -63,7 +78,7 @@ class TitleResolver:
 
         active = [executable for executable in classified if not executable.ignored]
         if not active:
-            return []
+            return ResolveResult(titles=[])
 
         groups = self._group_active_executables(active, sessions, mapping_by_target)
         grouped_count = len(groups)
@@ -113,7 +128,10 @@ class TitleResolver:
                 )
             )
 
-        return resolved
+        return ResolveResult(
+            titles=resolved,
+            duplicate_candidates=self._duplicate_candidates(resolved),
+        )
 
     def _title_from_executable(self, executable: ExecutableIdentity) -> str:
         if executable.product_name:
@@ -190,3 +208,35 @@ class TitleResolver:
             Classification.OVERLAY,
             Classification.SYSTEM,
         }
+
+    def _duplicate_candidates(self, titles: list[ResolvedTitle]) -> list[DuplicateCandidate]:
+        groups: dict[str, list[ResolvedTitle]] = {}
+        for title in titles:
+            normalized = re.sub(r"[^a-z0-9]+", "", title.title.casefold())
+            if not normalized:
+                continue
+            groups.setdefault(normalized, []).append(title)
+
+        candidates: list[DuplicateCandidate] = []
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            primary = sorted(
+                group,
+                key=lambda item: (
+                    self._CONFIDENCE_ORDER.get(item.title_confidence, 99),
+                    item.title.casefold(),
+                ),
+            )[0]
+            related = [title for title in group if title.title_id != primary.title_id]
+            candidates.append(
+                DuplicateCandidate(
+                    primary_title_id=primary.title_id,
+                    primary_title=primary.title,
+                    related_title_ids=[title.title_id for title in related],
+                    related_titles=[title.title for title in related],
+                    reasons=["normalized title collision"],
+                )
+            )
+
+        return candidates

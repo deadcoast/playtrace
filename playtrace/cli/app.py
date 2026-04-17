@@ -6,6 +6,7 @@ from playtrace.cli.cmd_doctor import register_doctor
 from playtrace.cli.cmd_export import register_export
 from playtrace.cli.cmd_inspect import register_inspect
 from playtrace.cli.cmd_map import register_map
+from playtrace.cli.cmd_me import register_me
 from playtrace.cli.cmd_report import register_report
 from playtrace.cli.cmd_scan import register_scan
 from playtrace.cli.cmd_sessions import register_sessions
@@ -19,6 +20,7 @@ app = typer.Typer(
 )
 
 register_scan(app)
+register_me(app)
 register_report(app)
 register_titles(app)
 register_sessions(app)

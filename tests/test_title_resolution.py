@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from playtrace.classify.resolver import ResolvedTitle, TitleResolver
 from playtrace.merge.titles import TitleAggregator
 from playtrace.models.enums import Classification, ConfidenceLevel, RuntimeConfidence
 from playtrace.models.executable import ExecutableIdentity
@@ -149,6 +150,59 @@ def test_title_aggregator_emits_multiple_titles_for_independent_games() -> None:
         (balatro.exe_id,),
         (hades.exe_id,),
     }
+
+
+def test_title_resolution_emits_duplicate_candidates_for_similar_executables() -> None:
+    primary = _exe(
+        exe_id="path:d:\\games\\elden ring\\eldenring.exe",
+        path=r"D:\Games\ELDEN RING\eldenring.exe",
+        filename="eldenring.exe",
+        product_name="ELDEN RING",
+    )
+    related = _exe(
+        exe_id="path:d:\\games\\eldenring\\eldenring_dx12.exe",
+        path=r"D:\Games\eldenring\eldenring_dx12.exe",
+        filename="eldenring_dx12.exe",
+        product_name="eldenring",
+    )
+
+    result = TitleResolver().resolve(
+        [primary, related],
+        [
+            _session(primary.exe_id, 3600, []),
+            _session(related.exe_id, 1200, []),
+        ],
+        mappings=[],
+    )
+
+    assert result.duplicate_candidates
+
+
+def test_duplicate_candidates_prefer_higher_confidence_titles() -> None:
+    medium = ResolvedTitle(
+        title_id="title:elden-ring",
+        title="ELDEN RING",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher="Steam",
+        primary_exe_id="exe:1",
+    )
+    low = ResolvedTitle(
+        title_id="title:eldenring",
+        title="eldenring",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.LOW,
+        launcher="Steam",
+        primary_exe_id="exe:2",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([low, medium])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title_id == "title:elden-ring"
+    assert candidates[0].primary_title == "ELDEN RING"
 
 
 def _exe(
