@@ -4,7 +4,7 @@ import json
 import re
 import socket
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import TypeVar
@@ -26,6 +26,7 @@ from playtrace.models.session import SessionRecord
 from playtrace.models.title import LaunchStats, RuntimeStats, TitleAggregate
 from playtrace.normalize.identity import IdentityNormalizer
 from playtrace.store.schema import SCHEMA_SQL
+from playtrace.utils.clock import Clock
 
 EnumT = TypeVar("EnumT", bound=Enum)
 
@@ -47,7 +48,7 @@ class Database:
 
     def create_scan_run(self, selected_sources: list[str]) -> str:
         scan_run_id = f"scan:{uuid4().hex}"
-        started_at = self._utc_now().isoformat()
+        started_at = self._format_dt(self._utc_now())
         host_name = socket.gethostname()
 
         with self.connect() as conn:
@@ -79,7 +80,7 @@ class Database:
                 WHERE scan_run_id = ?
                 """,
                 (
-                    self._utc_now().isoformat(),
+                    self._format_dt(self._utc_now()),
                     json.dumps(warnings),
                     scan_run_id,
                 ),
@@ -100,7 +101,7 @@ class Database:
                         artifact.artifact_id,
                         scan_run_id,
                         artifact.source.value,
-                        artifact.observed_at.isoformat() if artifact.observed_at else None,
+                        self._format_dt(artifact.observed_at),
                         artifact.raw_ref,
                         json.dumps(artifact.payload),
                     )
@@ -126,7 +127,7 @@ class Database:
                         record.artifact_id,
                         record.source.value,
                         record.evidence_type.value,
-                        record.observed_at.isoformat() if record.observed_at else None,
+                        self._format_dt(record.observed_at),
                         record.strength.value,
                         json.dumps(record.value),
                     )
@@ -153,7 +154,7 @@ class Database:
                     artifact_id=row["artifact_id"],
                     source=SourceName(row["source"]),
                     evidence_type=EvidenceType(row["evidence_type"]),
-                    observed_at=datetime.fromisoformat(row["observed_at"]) if row["observed_at"] else None,
+                    observed_at=self._parse_dt(row["observed_at"]),
                     strength=EvidenceStrength(row["strength"]),
                     value=json.loads(row["value"]),
                 )
@@ -183,7 +184,7 @@ class Database:
                     classification=classification,
                     launcher=row["launcher"],
                     ignore=bool(row["ignore"]),
-                    created_at=datetime.fromisoformat(row["created_at"]),
+                    created_at=self._parse_dt(row["created_at"]) or self._utc_now(),
                     normalized_key=normalizer.normalize_executable_target(row["target"]),
                     confidence=confidence,
                 )
@@ -216,8 +217,8 @@ class Database:
                         executable.classification.value,
                         executable.classification_confidence.value,
                         1 if executable.ignored else 0,
-                        executable.first_seen.isoformat() if executable.first_seen else None,
-                        executable.last_seen.isoformat() if executable.last_seen else None,
+                        self._format_dt(executable.first_seen),
+                        self._format_dt(executable.last_seen),
                     )
                     for executable in executables
                 ],
@@ -241,8 +242,8 @@ class Database:
                         session.title_id,
                         session.exe_id,
                         session.user_sid,
-                        session.started_at.isoformat() if session.started_at else None,
-                        session.ended_at.isoformat() if session.ended_at else None,
+                        self._format_dt(session.started_at),
+                        self._format_dt(session.ended_at),
                         session.duration_seconds,
                         session.foreground_seconds,
                         session.bytes_in,
@@ -287,8 +288,8 @@ class Database:
                         title.launches.inferred,
                         title.launches.gui,
                         title.launches.confidence.value,
-                        title.first_seen.isoformat() if title.first_seen else None,
-                        title.last_seen.isoformat() if title.last_seen else None,
+                        self._format_dt(title.first_seen),
+                        self._format_dt(title.last_seen),
                         json.dumps(title.evidence_sources),
                         json.dumps(title.tags),
                         json.dumps(title.notes),
@@ -376,8 +377,8 @@ class Database:
                     7,
                     19,
                     "high",
-                    (now - timedelta(days=120)).isoformat(),
-                    (now - timedelta(days=3)).isoformat(),
+                    self._format_dt(now - timedelta(days=120)),
+                    self._format_dt(now - timedelta(days=3)),
                     json.dumps(["security_log", "prefetch", "userassist", "srum"]),
                     json.dumps(["soulslike"]),
                     json.dumps([]),
@@ -397,8 +398,8 @@ class Database:
                     0,
                     31,
                     "high",
-                    (now - timedelta(days=240)).isoformat(),
-                    (now - timedelta(days=10)).isoformat(),
+                    self._format_dt(now - timedelta(days=240)),
+                    self._format_dt(now - timedelta(days=10)),
                     json.dumps(["prefetch", "userassist"]),
                     json.dumps(["roguelike"]),
                     json.dumps([]),
@@ -418,8 +419,8 @@ class Database:
                     63,
                     18,
                     "medium",
-                    (now - timedelta(days=60)).isoformat(),
-                    (now - timedelta(days=1)).isoformat(),
+                    self._format_dt(now - timedelta(days=60)),
+                    self._format_dt(now - timedelta(days=1)),
                     json.dumps(["prefetch", "userassist", "srum"]),
                     json.dumps(["deckbuilder"]),
                     json.dumps([]),
@@ -466,7 +467,7 @@ class Database:
 
         if row is None:
             return None, None
-        latest_at = datetime.fromisoformat(row["latest_at"]) if row["latest_at"] else None
+        latest_at = self._parse_dt(row["latest_at"])
         return row["host_name"], latest_at
 
     def count_sessions(self) -> int:
@@ -600,9 +601,9 @@ class Database:
         days: int,
         limit: int,
     ) -> list[tuple[str, SessionRecord]]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = self._utc_now() - timedelta(days=days)
         filters = ["COALESCE(sessions.ended_at, sessions.started_at) >= ?"]
-        params: list[object] = [cutoff.isoformat()]
+        params: list[object] = [self._format_dt(cutoff)]
         if title:
             filters.append("LOWER(COALESCE(titles.title, sessions.title_id, sessions.exe_id)) LIKE ?")
             params.append(f"%{title.lower()}%")
@@ -692,7 +693,13 @@ class Database:
         )
 
     def _utc_now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return Clock.utc_now()
+
+    def _format_dt(self, value: datetime | None) -> str | None:
+        return Clock.format_iso8601(value)
+
+    def _parse_dt(self, value: str | None) -> datetime | None:
+        return Clock.parse_iso8601(value)
 
     def _optional_enum(
         self,
@@ -730,8 +737,8 @@ class Database:
                 confidence=self._optional_enum(ConfidenceLevel, row["launches_confidence"])
                 or ConfidenceLevel.UNKNOWN,
             ),
-            first_seen=datetime.fromisoformat(row["first_seen"]) if row["first_seen"] else None,
-            last_seen=datetime.fromisoformat(row["last_seen"]) if row["last_seen"] else None,
+            first_seen=self._parse_dt(row["first_seen"]),
+            last_seen=self._parse_dt(row["last_seen"]),
             evidence_sources=self._json_list(row["evidence_sources"]),
             tags=self._json_list(row["tags"]),
             notes=self._json_list(row["notes"]),
@@ -743,8 +750,8 @@ class Database:
             title_id=row["title_id"],
             exe_id=row["exe_id"],
             user_sid=row["user_sid"],
-            started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
-            ended_at=datetime.fromisoformat(row["ended_at"]) if row["ended_at"] else None,
+            started_at=self._parse_dt(row["started_at"]),
+            ended_at=self._parse_dt(row["ended_at"]),
             duration_seconds=row["duration_seconds"],
             foreground_seconds=int(row["foreground_seconds"] or 0),
             bytes_in=int(row["bytes_in"] or 0),

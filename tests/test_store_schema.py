@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
 from playtrace.models.enums import EvidenceStrength, EvidenceType, RuntimeConfidence, SourceName
 from playtrace.models.session import SessionRecord
 from playtrace.store.db import Database
+from playtrace.utils.clock import Clock
 
 
 def test_bootstrap_creates_v2_tables(tmp_path: Path) -> None:
@@ -45,6 +47,26 @@ def test_scan_runs_store_timezone_aware_timestamps(tmp_path: Path) -> None:
 
     assert row["started_at"].endswith("+00:00")
     assert row["finished_at"].endswith("+00:00")
+
+
+def test_scan_runs_use_shared_clock_utility(tmp_path: Path, monkeypatch) -> None:
+    fixed = datetime(2026, 4, 11, 18, 42, 3, tzinfo=timezone.utc)
+    monkeypatch.setattr(Clock, "utc_now", staticmethod(lambda: fixed))
+
+    db = Database(tmp_path / "playtrace.db")
+    db.bootstrap()
+
+    scan_run_id = db.create_scan_run(["security_log"])
+    db.finish_scan_run(scan_run_id, [])
+
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT started_at, finished_at FROM scan_runs WHERE scan_run_id = ?",
+            (scan_run_id,),
+        ).fetchone()
+
+    assert row["started_at"] == fixed.isoformat()
+    assert row["finished_at"] == fixed.isoformat()
 
 
 def test_titles_can_be_rebuilt_from_artifacts_and_mappings(tmp_path: Path) -> None:

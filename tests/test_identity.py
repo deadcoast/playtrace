@@ -36,3 +36,13 @@ def test_identity_normalizer_merges_case_only_path_variants() -> None:
 
     assert normalizer.build_key(first) == normalizer.build_key(second)
     assert normalizer.build_key(first).startswith("path:d:\\steamlibrary\\steamapps\\common\\elden ring\\game\\eldenring.exe")
+
+
+def test_identity_normalizer_expands_environment_variables_in_targets(monkeypatch) -> None:
+    monkeypatch.setenv("PLAYTRACE_TEST_ROOT", r"C:\Games")
+
+    target = IdentityNormalizer().normalize_executable_target(
+        r"%PLAYTRACE_TEST_ROOT%/Elden Ring/ELDENRING.EXE"
+    )
+
+    assert target == r"path:c:\games\elden ring\eldenring.exe"

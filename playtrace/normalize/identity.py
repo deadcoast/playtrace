@@ -6,6 +6,7 @@ from pathlib import PureWindowsPath
 
 from playtrace.models.evidence import EvidenceRecord
 from playtrace.models.executable import ExecutableIdentity
+from playtrace.normalize.pathing import PathNormalizer
 
 
 @dataclass(slots=True)
@@ -15,6 +16,9 @@ class NormalizedEvidence:
 
 
 class IdentityNormalizer:
+    def __init__(self, path_normalizer: PathNormalizer | None = None) -> None:
+        self._path_normalizer = path_normalizer or PathNormalizer()
+
     def build_key(self, record: EvidenceRecord) -> str:
         sha1 = self._string_value(record, "sha1")
         if sha1:
@@ -62,7 +66,7 @@ class IdentityNormalizer:
             canonical_path = self.normalize_path(text[5:])
             return f"path:{canonical_path}" if canonical_path else None
 
-        if self._looks_like_windows_path(text):
+        if self._looks_like_path_target(text):
             canonical_path = self.normalize_path(text)
             return f"path:{canonical_path}" if canonical_path else None
 
@@ -123,6 +127,10 @@ class IdentityNormalizer:
         return text.split(" ", 1)[0]
 
     def _normalize_path(self, path: str | None) -> str | None:
+        normalized = self._path_normalizer.normalize(path)
+        if normalized:
+            return normalized
+
         if not path:
             return None
 
@@ -138,3 +146,13 @@ class IdentityNormalizer:
         if len(stripped) >= 3 and stripped[1] == ":" and stripped[0].isalpha():
             return stripped[2] in {"\\", "/"}
         return stripped.startswith("\\\\") or stripped.startswith("//")
+
+    def _looks_like_path_target(self, value: str) -> bool:
+        stripped = value.strip()
+        return (
+            self._looks_like_windows_path(stripped)
+            or "%" in stripped
+            or "\\" in stripped
+            or "/" in stripped
+            or stripped.lower().endswith(".exe")
+        )
