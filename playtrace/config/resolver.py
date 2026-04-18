@@ -285,6 +285,13 @@ class ConfigResolver:
                 config.export.format,
                 cli.format,
             ),
+            scope=self._value(
+                self._built_in.defaults.export.scope,
+                config.defaults.export.scope,
+                profile.export.scope,
+                config.export.scope,
+                cli.scope,
+            ),
         )
 
     def _resolve_profile(

@@ -106,6 +106,22 @@ limit = 5
     assert config.profiles["ready"].report.limit == 5
 
 
+def test_load_parses_export_scope(tmp_path: Path) -> None:
+    config_path = tmp_path / "playtrace.toml"
+    config_path.write_text(
+        """
+[export]
+format = "json"
+scope = "lineage"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = ConfigLoader().load(config_path)
+
+    assert config.export.scope == "lineage"
+
+
 def test_load_ignores_unknown_fields_in_nested_config(tmp_path: Path) -> None:
     config_path = tmp_path / "playtrace.toml"
     config_path.write_text(

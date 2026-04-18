@@ -339,6 +339,34 @@ def test_export_uses_cli_format_over_config_format(tmp_path: Path) -> None:
     assert output_path.read_text(encoding="utf-8").lstrip().startswith("{")
 
 
+def test_export_cli_scope_overrides_config_default(tmp_path: Path) -> None:
+    db_path = tmp_path / "playtrace.db"
+    output_path = tmp_path / "repair.json"
+    config_path = write_config(tmp_path, "[export]\nscope = \"lineage\"\n")
+    _seed_titles_database(db_path, ["Alpha"])
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "--db",
+            str(db_path),
+            "--config",
+            str(config_path),
+            "--output",
+            str(output_path),
+            "--format",
+            "json",
+            "--scope",
+            "repair-preview",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert output_path.exists()
+    assert "\"scope\": \"repair-preview\"" in output_path.read_text(encoding="utf-8")
+
+
 def test_map_uses_configured_auto_merge_posture_when_cli_auto_is_unset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

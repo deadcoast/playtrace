@@ -207,6 +207,22 @@ def test_resolver_applies_map_cli_over_command_over_profile_over_defaults(
     assert resolved.auto is True
 
 
+def test_resolver_applies_export_scope_cli_over_command_over_profile_over_defaults(
+    config: ConfigModel,
+) -> None:
+    config.defaults.export.scope = "entity"
+    config.profiles["ready"].export.scope = "lineage"
+    config.export.scope = "repair-preview"
+
+    resolved = ConfigResolver().resolve_export(
+        config=config,
+        cli=RawExportInput(scope="entity"),
+        spec_name=None,
+    )
+
+    assert resolved.scope == "entity"
+
+
 def build_empty_cli_input(resolver_name: str):
     if resolver_name == "resolve_scan":
         return RawScanInput()
