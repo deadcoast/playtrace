@@ -44,13 +44,19 @@ class TitleResolver:
         executables: list[ExecutableIdentity],
         sessions: list[SessionRecord],
         mappings: list[UserMapping] | None = None,
+        config_overrides: dict[str, str] | None = None,
     ) -> ResolveResult:
         mappings = mappings or []
         mapping_by_target = self._mapping_lookup(mappings)
+        config_override_lookup = self._config_override_lookup(config_overrides or {})
 
         classified: list[ExecutableIdentity] = []
         for executable in executables:
             mapping = self._mapping_for_executable(executable, mapping_by_target)
+            override_classification = self._config_override_for_executable(
+                executable,
+                config_override_lookup,
+            )
             classification, subtype, confidence = classify_executable(executable)
             classified.append(
                 ExecutableIdentity(
@@ -65,9 +71,15 @@ class TitleResolver:
                     company_name=executable.company_name,
                     sha1=executable.sha1,
                     canonical_path=executable.canonical_path,
-                    classification=mapping.classification if mapping and mapping.classification else classification,
+                    classification=(
+                        mapping.classification
+                        if mapping and mapping.classification
+                        else override_classification or classification
+                    ),
                     classification_subtype=subtype,
-                    classification_confidence=confidence,
+                    classification_confidence=(
+                        ConfidenceLevel.HIGH if override_classification else confidence
+                    ),
                     ignored=executable.ignored or (mapping.ignore if mapping else False),
                     first_seen=executable.first_seen,
                     last_seen=executable.last_seen,
@@ -159,6 +171,23 @@ class TitleResolver:
                 lookup[mapping.normalized_key] = mapping
         return lookup
 
+    def _config_override_lookup(self, config_overrides: dict[str, str]) -> dict[str, Classification]:
+        lookup: dict[str, Classification] = {}
+        for target, classification_name in config_overrides.items():
+            try:
+                classification = Classification(classification_name)
+            except ValueError:
+                continue
+            keys = {
+                target,
+                target.casefold(),
+                target.replace("/", "\\"),
+                target.replace("/", "\\").casefold(),
+            }
+            for key in keys:
+                lookup[key] = classification
+        return lookup
+
     def _mapping_for_executable(
         self,
         executable: ExecutableIdentity,
@@ -168,6 +197,30 @@ class TitleResolver:
             mapping_by_target.get(executable.exe_id)
             or mapping_by_target.get(executable.normalized_key)
         )
+
+    def _config_override_for_executable(
+        self,
+        executable: ExecutableIdentity,
+        override_lookup: dict[str, Classification],
+    ) -> Classification | None:
+        candidates = [
+            executable.exe_id,
+            executable.normalized_key,
+            executable.path,
+        ]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            for key in {
+                candidate,
+                candidate.casefold(),
+                candidate.replace("/", "\\"),
+                candidate.replace("/", "\\").casefold(),
+            }:
+                classification = override_lookup.get(key)
+                if classification is not None:
+                    return classification
+        return None
 
     def _group_active_executables(
         self,

@@ -265,6 +265,42 @@ def test_render_titles_outputs_filtered_titles(tmp_path: Path, capsys) -> None:
     assert "Discord" not in output
 
 
+def test_render_titles_counts_gui_launches_in_total(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "playtrace.db"
+    db = Database(db_path)
+    db.bootstrap()
+    db.replace_titles(
+        [
+            _title(
+                title_id="title:balatro",
+                title="Balatro",
+                confirmed_seconds=7200,
+                estimated_seconds=0,
+                launches_confirmed=0,
+                launches_inferred=0,
+                launches_gui=2,
+            )
+        ]
+    )
+
+    ReporterService().render_titles(
+        TitlesRequest(
+            db_path=db_path,
+            theme="mono",
+            density="comfortable",
+            sort_by="runtime",
+            classification=None,
+            launcher=None,
+            limit=10,
+        )
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Balatro" in output
+    assert "│        2 │" in output
+
+
 def test_render_sessions_outputs_recent_sessions(tmp_path: Path, capsys) -> None:
     db_path = tmp_path / "playtrace.db"
     db = Database(db_path)
@@ -427,6 +463,9 @@ def _title(
     launcher: str | None = "Steam",
     confirmed_seconds: int = 3600,
     estimated_seconds: int = 0,
+    launches_confirmed: int = 1,
+    launches_inferred: int = 0,
+    launches_gui: int = 1,
 ) -> TitleAggregate:
     return TitleAggregate(
         title_id=title_id,
@@ -442,9 +481,9 @@ def _title(
             confidence=ConfidenceLevel.HIGH,
         ),
         launches=LaunchStats(
-            confirmed=1,
-            inferred=0,
-            gui=1,
+            confirmed=launches_confirmed,
+            inferred=launches_inferred,
+            gui=launches_gui,
             confidence=ConfidenceLevel.HIGH,
         ),
         first_seen=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),

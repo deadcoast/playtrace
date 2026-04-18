@@ -4,10 +4,12 @@ from datetime import datetime, timezone
 
 from playtrace.classify.resolver import ResolvedTitle, TitleResolver
 from playtrace.merge.titles import TitleAggregator
+from playtrace.models.evidence import EvidenceRecord
 from playtrace.models.enums import Classification, ConfidenceLevel, RuntimeConfidence
 from playtrace.models.executable import ExecutableIdentity
 from playtrace.models.mapping import UserMapping
 from playtrace.models.session import SessionRecord
+from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 
 
 def test_launcher_child_rule_prefers_longest_lived_game_process() -> None:
@@ -178,6 +180,36 @@ def test_title_resolution_emits_duplicate_candidates_for_similar_executables() -
     assert result.duplicate_candidates
 
 
+def test_title_resolution_applies_config_classification_overrides_below_user_mappings() -> None:
+    executable = _exe(
+        exe_id="path:d:\\games\\custom\\game.exe",
+        path=r"D:\Games\Custom\game.exe",
+        filename="game.exe",
+        product_name="Bootstrap",
+    )
+    mapping = UserMapping(
+        mapping_id="mapping:1",
+        target=executable.exe_id,
+        title="Mapped Game",
+        classification=None,
+        launcher="Custom",
+        ignore=False,
+        created_at=datetime(2026, 4, 11, 18, 0, 0, tzinfo=timezone.utc),
+        normalized_key=executable.exe_id,
+    )
+
+    result = TitleResolver().resolve(
+        [executable],
+        [_session(executable.exe_id, 1200, [])],
+        mappings=[mapping],
+        config_overrides={r"D:\Games\Custom\game.exe": "game"},
+    )
+
+    assert len(result.titles) == 1
+    assert result.titles[0].title == "Mapped Game"
+    assert result.titles[0].classification is Classification.GAME
+
+
 def test_duplicate_candidates_prefer_higher_confidence_titles() -> None:
     medium = ResolvedTitle(
         title_id="title:elden-ring",
@@ -203,6 +235,47 @@ def test_duplicate_candidates_prefer_higher_confidence_titles() -> None:
     assert len(candidates) == 1
     assert candidates[0].primary_title_id == "title:elden-ring"
     assert candidates[0].primary_title == "ELDEN RING"
+
+
+def test_title_aggregator_uses_non_session_evidence_for_launches_and_sources() -> None:
+    executable = _exe(
+        exe_id="path:c:\\program files (x86)\\battle.net\\battle.net launcher.exe",
+        path="C:\\Program Files (x86)\\Battle.net\\Battle.net Launcher.exe",
+        filename="Battle.net Launcher.exe",
+        product_name="Battle.net Launcher",
+    )
+    evidence = [
+        EvidenceRecord(
+            evidence_id="evidence:userassist:launch:1",
+            artifact_id="artifact:userassist:1",
+            source=SourceName.USERASSIST,
+            evidence_type=EvidenceType.INTERACTIVE_LAUNCH,
+            observed_at=datetime(2026, 4, 16, 8, 40, 52, 798000, tzinfo=timezone.utc),
+            strength=EvidenceStrength.INTERACTIVE,
+            value={"exe_path": executable.path, "run_count": 1},
+        ),
+        EvidenceRecord(
+            evidence_id="evidence:userassist:focus:1",
+            artifact_id="artifact:userassist:1",
+            source=SourceName.USERASSIST,
+            evidence_type=EvidenceType.FOREGROUND_USAGE,
+            observed_at=datetime(2026, 4, 16, 8, 40, 52, 798000, tzinfo=timezone.utc),
+            strength=EvidenceStrength.INTERACTIVE,
+            value={"exe_path": executable.path, "focus_time_ms": 24034000},
+        ),
+    ]
+
+    titles = TitleAggregator().build([executable], [], evidence_records=evidence)
+
+    assert len(titles) == 1
+    title = titles[0]
+    assert title.title == "Battle.net Launcher"
+    assert title.launches.gui == 1
+    assert title.launches.confidence is ConfidenceLevel.HIGH
+    assert title.runtime.foreground_seconds == 24034
+    assert title.evidence_sources == ["userassist"]
+    assert title.first_seen == datetime(2026, 4, 16, 8, 40, 52, 798000, tzinfo=timezone.utc)
+    assert title.last_seen == datetime(2026, 4, 16, 8, 40, 52, 798000, tzinfo=timezone.utc)
 
 
 def _exe(

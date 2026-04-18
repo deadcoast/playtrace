@@ -4,7 +4,8 @@ from pathlib import Path
 
 import typer
 
-from playtrace.cli.common import DatabaseOption
+from playtrace.cli.common import ConfigOption, DatabaseOption, SpecOption
+from playtrace.config.runtime import RawMapInput, UNSET
 from playtrace.models.enums import Classification
 from playtrace.services.mapper import MapRequest, MapperService
 
@@ -21,22 +22,31 @@ def register_map(app: typer.Typer) -> None:
         ),
         launcher: str | None = typer.Option(None, "--launcher", help="Optional launcher label."),
         ignore: bool = typer.Option(False, "--ignore", help="Suppress this executable from reports."),
-        auto: bool = typer.Option(False, "--auto", help="Aggressively merge suspected duplicate titles."),
+        auto: bool | None = typer.Option(
+            None,
+            "--auto/--no-auto",
+            help="Aggressively merge suspected duplicate titles.",
+        ),
         db: DatabaseOption = Path("playtrace.db"),
+        config: ConfigOption = None,
+        spec: SpecOption = None,
     ) -> None:
-        if not auto and (not target or not title):
-            raise typer.BadParameter("TARGET and --title are required unless --auto is used.")
-
         request = MapRequest(
             db_path=db,
+            config_path=config,
+            spec_name=spec,
+            raw=RawMapInput(auto=auto if auto is not None else UNSET),
             target=target,
             title=title,
             classification=classification,
             launcher=launcher,
             ignore=ignore,
-            auto=auto,
         )
-        merged = MapperService().apply(request)
+        try:
+            merged = MapperService().apply(request)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
         if auto:
             typer.echo(f"Auto-merged {merged} duplicate title group(s).")
         else:

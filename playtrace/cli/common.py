@@ -27,12 +27,17 @@ ConfigOption = Annotated[
     ),
 ]
 
+SpecOption = Annotated[
+    str | None,
+    typer.Option("--spec", help="Optional power-user profile name."),
+]
+
 ThemeOption = Annotated[
-    str,
+    str | None,
     typer.Option("--theme", help="Theme name: midnight, amber, ice, mono."),
 ]
 
 DensityOption = Annotated[
-    str,
+    str | None,
     typer.Option("--density", help="Density mode: compact, comfortable, cinematic."),
 ]

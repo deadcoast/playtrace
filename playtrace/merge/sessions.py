@@ -30,7 +30,11 @@ class SessionMerger:
 
         for record in sorted(records, key=self._sort_key):
             if record.evidence_type == EvidenceType.PROCESS_START:
-                open_starts[self._pair_key(record)].append(record)
+                pair_key = self._pair_key(record)
+                starts = open_starts[pair_key]
+                if starts and self._within_dedupe_window(starts[-1], record):
+                    continue
+                starts.append(record)
                 continue
 
             if record.evidence_type != EvidenceType.PROCESS_EXIT:
@@ -112,9 +116,10 @@ class SessionMerger:
         timestamp_fragment = str(int(timestamp.timestamp())) if timestamp else "none"
         return f"{self.normalizer.build_key(record)}:session:{pid_fragment}:{timestamp_fragment}:{record.evidence_id}"
 
-    def _sort_key(self, record: EvidenceRecord) -> tuple[datetime, str]:
+    def _sort_key(self, record: EvidenceRecord) -> tuple[datetime, int, str]:
         observed_at = self._normalized_observed_at(record) or datetime.min.replace(tzinfo=timezone.utc)
-        return observed_at, record.evidence_id
+        phase = 0 if record.evidence_type == EvidenceType.PROCESS_START else 1
+        return observed_at, phase, record.evidence_id
 
     def _normalized_observed_at(self, record: EvidenceRecord) -> datetime | None:
         observed_at = record.observed_at
@@ -132,6 +137,13 @@ class SessionMerger:
             return int(pid)
         except (TypeError, ValueError):
             return None
+
+    def _within_dedupe_window(self, left: EvidenceRecord, right: EvidenceRecord) -> bool:
+        left_time = self._normalized_observed_at(left)
+        right_time = self._normalized_observed_at(right)
+        if left_time is None or right_time is None:
+            return False
+        return abs(right_time - left_time) <= self.config.dedupe_window
 
     def _string_value(self, record: EvidenceRecord, key: str) -> str | None:
         value = record.value.get(key)

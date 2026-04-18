@@ -7,6 +7,9 @@ from pathlib import Path
 from tempfile import gettempdir
 from typing import Sequence
 
+from playtrace.config.loader import ConfigLoader
+from playtrace.config.resolver import ConfigResolver
+from playtrace.config.runtime import RawScanInput, UNSET
 from playtrace.ingest.orchestrator import IngestOrchestrator, IngestSourceStatus
 from playtrace.ingest.registry import build_collectors, build_parsers
 from playtrace.parsers.base import CollectContext
@@ -16,14 +19,34 @@ from playtrace.render.theme import get_theme
 from playtrace.store.db import Database
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class ScanRequest:
     db_path: Path
     config_path: Path | None
-    sources: list[str]
-    full: bool = False
-    theme: str = "midnight"
-    density: str = "comfortable"
+    spec_name: str | None
+    raw: RawScanInput
+
+    def __init__(
+        self,
+        *,
+        db_path: Path,
+        config_path: Path | None = None,
+        spec_name: str | None = None,
+        raw: RawScanInput | None = None,
+        sources: list[str] | None = None,
+        full: bool | None = None,
+        theme: str | None = None,
+        density: str | None = None,
+    ) -> None:
+        self.db_path = db_path
+        self.config_path = config_path
+        self.spec_name = spec_name
+        self.raw = raw or RawScanInput(
+            sources=list(sources) if sources else UNSET,
+            full=full if full is not None else UNSET,
+            theme=theme if theme is not None else UNSET,
+            density=density if density is not None else UNSET,
+        )
 
 
 @dataclass(slots=True)
@@ -55,24 +78,30 @@ class ScannerService:
         *,
         collectors: Sequence | None = None,
         parsers: Sequence | None = None,
+        config_loader: ConfigLoader | None = None,
+        resolver: ConfigResolver | None = None,
     ) -> None:
         self.collectors = list(collectors) if collectors is not None else build_collectors()
         self.parsers = list(parsers) if parsers is not None else build_parsers()
+        self.config_loader = config_loader or ConfigLoader()
+        self.resolver = resolver or ConfigResolver()
 
     def run(self, request: ScanRequest) -> ScanLiveSnapshot:
         return self.run_for_snapshot(request)
 
     def run_for_snapshot(self, request: ScanRequest) -> ScanLiveSnapshot:
+        resolved = self._resolve(request)
         db = Database(request.db_path)
         db.bootstrap()
+        db.purge_legacy_sample_scan_runs()
 
-        selected_sources = request.sources or [collector.name for collector in self.collectors]
+        selected_sources = resolved.sources or [collector.name for collector in self.collectors]
         scan_run_id = db.create_scan_run(selected_sources)
         context = CollectContext(
             scan_run_id=scan_run_id,
             host_name=socket.gethostname(),
             temp_dir=Path(gettempdir()),
-            full_scan=request.full,
+            full_scan=resolved.full,
         )
 
         orchestrator = IngestOrchestrator(
@@ -83,7 +112,7 @@ class ScannerService:
 
         db.replace_artifacts_for_scan(scan_run_id, result.artifacts)
         db.replace_evidence_for_scan(scan_run_id, result.evidence)
-        db.rebuild_from_artifacts_and_mappings()
+        db.rebuild_from_artifacts_and_mappings(settings=resolved.reconstruction)
         db.finish_scan_run(scan_run_id, result.warnings)
 
         report_snapshot = db.load_snapshot(limit=5)
@@ -111,8 +140,17 @@ class ScannerService:
         )
 
     def render(self, request: ScanRequest) -> ScanLiveSnapshot:
+        resolved = self._resolve(request)
         snapshot = self.run_for_snapshot(request)
         console = build_console()
-        theme = get_theme(request.theme)
+        theme = get_theme(resolved.presentation.theme)
         render_scan(console, theme, snapshot)
         return snapshot
+
+    def _resolve(self, request: ScanRequest):
+        config = self.config_loader.load(request.config_path)
+        return self.resolver.resolve_scan(
+            config=config,
+            cli=request.raw,
+            spec_name=request.spec_name,
+        )

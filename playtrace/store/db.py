@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 import json
 import re
 import socket
@@ -24,11 +25,20 @@ from playtrace.models.mapping import UserMapping
 from playtrace.models.report import CoverageSummary, DuplicateCandidate, ReportSnapshot
 from playtrace.models.session import SessionRecord
 from playtrace.models.title import LaunchStats, RuntimeStats, TitleAggregate
+from playtrace.config.runtime import ReconstructionSettings
 from playtrace.normalize.identity import IdentityNormalizer
 from playtrace.store.schema import SCHEMA_SQL
 from playtrace.utils.clock import Clock
 
 EnumT = TypeVar("EnumT", bound=Enum)
+LEGACY_SAMPLE_RAW_REFS = {
+    r"amcache:D:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe",
+    r"bam:D:\Games\Balatro\balatro.exe",
+    "prefetch:ELDENRING.EXE",
+    "security_log:4688:15320",
+    "srum:application-resource-usage",
+    r"userassist:C:\Program Files (x86)\Steam\steam.exe",
+}
 
 
 class Database:
@@ -135,6 +145,45 @@ class Database:
                 ],
             )
             conn.commit()
+
+    def purge_legacy_sample_scan_runs(self) -> int:
+        with self.connect() as conn:
+            scan_runs = conn.execute(
+                "SELECT DISTINCT scan_run_id FROM artifacts ORDER BY scan_run_id ASC"
+            ).fetchall()
+
+            stale_scan_run_ids: list[str] = []
+            for row in scan_runs:
+                scan_run_id = str(row["scan_run_id"])
+                raw_refs = {
+                    artifact_row["raw_ref"]
+                    for artifact_row in conn.execute(
+                        "SELECT raw_ref FROM artifacts WHERE scan_run_id = ?",
+                        (scan_run_id,),
+                    ).fetchall()
+                }
+                if raw_refs == LEGACY_SAMPLE_RAW_REFS:
+                    stale_scan_run_ids.append(scan_run_id)
+
+            if not stale_scan_run_ids:
+                return 0
+
+            placeholders = ", ".join("?" for _ in stale_scan_run_ids)
+            conn.execute(
+                f"DELETE FROM evidence_links WHERE scan_run_id IN ({placeholders})",
+                stale_scan_run_ids,
+            )
+            conn.execute(
+                f"DELETE FROM artifacts WHERE scan_run_id IN ({placeholders})",
+                stale_scan_run_ids,
+            )
+            conn.execute(
+                f"DELETE FROM scan_runs WHERE scan_run_id IN ({placeholders})",
+                stale_scan_run_ids,
+            )
+            conn.commit()
+
+        return len(stale_scan_run_ids)
 
     def load_evidence_records(self) -> list[EvidenceRecord]:
         with self.connect() as conn:
@@ -310,12 +359,20 @@ class Database:
             )
             conn.commit()
 
-    def rebuild_from_artifacts_and_mappings(self) -> None:
+    def rebuild_from_artifacts_and_mappings(
+        self,
+        settings: ReconstructionSettings | None = None,
+    ) -> None:
         from playtrace.merge.sessions import SessionMerger
+        from playtrace.merge.sessions import SessionMergeConfig
         from playtrace.merge.titles import TitleAggregator
         from playtrace.normalize.identity import IdentityNormalizer
 
-        evidence = self.load_evidence_records()
+        settings = settings or ReconstructionSettings()
+        evidence = self._filter_evidence_records(
+            self.load_evidence_records(),
+            minimum_confidence=settings.minimum_evidence_confidence,
+        )
         normalizer = IdentityNormalizer()
         executable_map: dict[str, ExecutableIdentity] = {}
 
@@ -343,12 +400,31 @@ class Database:
             if not existing.canonical_path and executable.canonical_path:
                 existing.canonical_path = executable.canonical_path
 
-        sessions = SessionMerger(normalizer=normalizer).build_sessions(evidence)
+        sessions = SessionMerger(
+            config=SessionMergeConfig(
+                dedupe_window=timedelta(minutes=settings.session_merge_dedupe_window_minutes)
+            ),
+            normalizer=normalizer,
+        ).build_sessions(evidence)
         titles = TitleAggregator().build(
             list(executable_map.values()),
             sessions,
             self.load_user_mappings(),
+            evidence_records=evidence,
+            config_overrides=settings.classification_overrides or {},
         )
+        if settings.duplicate_auto_merge:
+            titles = self._auto_merge_duplicate_titles(
+                titles,
+                threshold=settings.duplicate_similarity_threshold,
+            )
+        title_ids_by_executable = {
+            exe_id: title.title_id
+            for title in titles
+            for exe_id in title.executable_ids
+        }
+        for session in sessions:
+            session.title_id = title_ids_by_executable.get(session.exe_id)
 
         self.replace_executables(list(executable_map.values()))
         self.replace_sessions(sessions)
@@ -476,17 +552,13 @@ class Database:
         return int(row["session_count"] or 0)
 
     def count_duplicate_title_groups(self) -> int:
-        with self.connect() as conn:
-            rows = conn.execute("SELECT title FROM titles").fetchall()
-
-        groups: dict[str, int] = {}
-        for row in rows:
-            normalized = self._normalized_title_key(row["title"] or "")
-            if not normalized:
-                continue
-            groups[normalized] = groups.get(normalized, 0) + 1
-
-        return sum(1 for count in groups.values() if count > 1)
+        titles = self.load_titles(
+            sort_by="runtime",
+            classification=None,
+            launcher=None,
+            limit=10_000,
+        )
+        return len(self._duplicate_groups(titles, threshold=0.75))
 
     def count_unmapped_executables(self) -> int:
         with self.connect() as conn:
@@ -521,7 +593,7 @@ class Database:
 
         order_by = {
             "runtime": "(confirmed_seconds + estimated_seconds) DESC, title ASC",
-            "launches": "(launches_confirmed + launches_inferred) DESC, title ASC",
+            "launches": "(launches_confirmed + launches_inferred + launches_gui) DESC, title ASC",
             "last_seen": "last_seen DESC, title ASC",
             "title": "title ASC",
         }.get(sort_by, "(confirmed_seconds + estimated_seconds) DESC, title ASC")
@@ -544,25 +616,9 @@ class Database:
             launcher=None,
             limit=10_000,
         )
-        groups: dict[str, list[TitleAggregate]] = {}
-        for title in titles:
-            normalized = self._normalized_title_key(title.title)
-            if not normalized:
-                continue
-            groups.setdefault(normalized, []).append(title)
-
         candidates: list[DuplicateCandidate] = []
-        for group in groups.values():
-            if len(group) < 2:
-                continue
-            primary = sorted(
-                group,
-                key=lambda item: (
-                    self._title_confidence_rank(item.title_confidence),
-                    -(item.runtime.confirmed_seconds + item.runtime.estimated_seconds),
-                    item.title.casefold(),
-                ),
-            )[0]
+        for group in self._duplicate_groups(titles, threshold=0.75):
+            primary = self._select_duplicate_primary(group)
             related = [title for title in group if title.title_id != primary.title_id]
             candidates.append(
                 DuplicateCandidate(
@@ -773,6 +829,123 @@ class Database:
 
     def _normalized_title_key(self, title: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", title.casefold())
+
+    def _duplicate_similarity(self, left: str, right: str) -> float:
+        left_key = self._normalized_title_key(left)
+        right_key = self._normalized_title_key(right)
+        if not left_key or not right_key:
+            return 0.0
+        return SequenceMatcher(a=left_key, b=right_key).ratio()
+
+    def _duplicate_groups(
+        self,
+        titles: list[TitleAggregate],
+        *,
+        threshold: float,
+    ) -> list[list[TitleAggregate]]:
+        if len(titles) < 2:
+            return []
+
+        parent = list(range(len(titles)))
+
+        def find(index: int) -> int:
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        def union(left: int, right: int) -> None:
+            left_root = find(left)
+            right_root = find(right)
+            if left_root != right_root:
+                parent[right_root] = left_root
+
+        for left in range(len(titles)):
+            for right in range(left + 1, len(titles)):
+                if self._duplicate_similarity(titles[left].title, titles[right].title) >= threshold:
+                    union(left, right)
+
+        grouped: dict[int, list[TitleAggregate]] = {}
+        for index, title in enumerate(titles):
+            grouped.setdefault(find(index), []).append(title)
+
+        return [group for group in grouped.values() if len(group) > 1]
+
+    def _select_duplicate_primary(self, group: list[TitleAggregate]) -> TitleAggregate:
+        return sorted(
+            group,
+            key=lambda item: (
+                self._title_confidence_rank(item.title_confidence),
+                -(item.runtime.confirmed_seconds + item.runtime.estimated_seconds),
+                item.title.casefold(),
+            ),
+        )[0]
+
+    def _auto_merge_duplicate_titles(
+        self,
+        titles: list[TitleAggregate],
+        *,
+        threshold: float,
+    ) -> list[TitleAggregate]:
+        merged_titles: list[TitleAggregate] = []
+        merged_ids: set[str] = set()
+        for group in self._duplicate_groups(titles, threshold=threshold):
+            primary = self._select_duplicate_primary(group)
+            merged = primary
+            for title in group:
+                merged_ids.add(title.title_id)
+                if title.title_id == primary.title_id:
+                    continue
+                merged.runtime.confirmed_seconds += title.runtime.confirmed_seconds
+                merged.runtime.estimated_seconds += title.runtime.estimated_seconds
+                merged.runtime.foreground_seconds += title.runtime.foreground_seconds
+                merged.launches.confirmed += title.launches.confirmed
+                merged.launches.inferred += title.launches.inferred
+                merged.launches.gui += title.launches.gui
+                merged.evidence_sources = sorted(set(merged.evidence_sources + title.evidence_sources))
+                merged.executable_ids = list(dict.fromkeys(merged.executable_ids + title.executable_ids))
+                merged.suppressed_executable_ids = list(
+                    dict.fromkeys(
+                        merged.suppressed_executable_ids + title.suppressed_executable_ids
+                    )
+                )
+                if merged.first_seen is None or (
+                    title.first_seen is not None and title.first_seen < merged.first_seen
+                ):
+                    merged.first_seen = title.first_seen
+                if merged.last_seen is None or (
+                    title.last_seen is not None and title.last_seen > merged.last_seen
+                ):
+                    merged.last_seen = title.last_seen
+            merged_titles.append(merged)
+
+        merged_titles.extend([title for title in titles if title.title_id not in merged_ids])
+        return merged_titles
+
+    def _filter_evidence_records(
+        self,
+        records: list[EvidenceRecord],
+        *,
+        minimum_confidence: str,
+    ) -> list[EvidenceRecord]:
+        threshold = {
+            "low": 0,
+            "medium": 1,
+            "high": 2,
+        }.get(minimum_confidence, 0)
+        strength_rank = {
+            EvidenceStrength.EXACT: 2,
+            EvidenceStrength.STRONG: 2,
+            EvidenceStrength.INTERACTIVE: 2,
+            EvidenceStrength.ESTIMATED: 1,
+            EvidenceStrength.WEAK: 0,
+            EvidenceStrength.UNKNOWN: 0,
+        }
+        return [
+            record
+            for record in records
+            if strength_rank.get(record.strength, 0) >= threshold
+        ]
 
     def _title_confidence_rank(self, confidence: ConfidenceLevel) -> int:
         ranks = {

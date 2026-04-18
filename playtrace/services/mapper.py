@@ -5,6 +5,9 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
+from playtrace.config.loader import ConfigLoader
+from playtrace.config.resolver import ConfigResolver
+from playtrace.config.runtime import RawMapInput, UNSET
 from playtrace.models.enums import Classification
 from playtrace.models.report import DuplicateCandidate
 from playtrace.normalize.identity import IdentityNormalizer
@@ -12,20 +15,56 @@ from playtrace.store.db import Database
 from playtrace.utils.clock import Clock
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class MapRequest:
     db_path: Path
+    config_path: Path | None
+    spec_name: str | None
+    raw: RawMapInput
     target: str | None = None
     title: str | None = None
     classification: Classification | None = None
     launcher: str | None = None
     ignore: bool = False
-    auto: bool = False
+
+    def __init__(
+        self,
+        *,
+        db_path: Path,
+        config_path: Path | None = None,
+        spec_name: str | None = None,
+        raw: RawMapInput | None = None,
+        target: str | None = None,
+        title: str | None = None,
+        classification: Classification | None = None,
+        launcher: str | None = None,
+        ignore: bool = False,
+        auto: bool | None = None,
+    ) -> None:
+        self.db_path = db_path
+        self.config_path = config_path
+        self.spec_name = spec_name
+        self.raw = raw or RawMapInput(auto=auto if auto is not None else UNSET)
+        self.target = target
+        self.title = title
+        self.classification = classification
+        self.launcher = launcher
+        self.ignore = ignore
 
 
 class MapperService:
+    def __init__(
+        self,
+        *,
+        config_loader: ConfigLoader | None = None,
+        resolver: ConfigResolver | None = None,
+    ) -> None:
+        self.config_loader = config_loader or ConfigLoader()
+        self.resolver = resolver or ConfigResolver()
+
     def apply(self, request: MapRequest) -> int:
-        if request.auto:
+        resolved = self._resolve(request)
+        if resolved.auto:
             return self.apply_auto_merge(request)
 
         if not request.target or not request.title:
@@ -75,6 +114,14 @@ class MapperService:
                 self._merge_persisted_titles(conn=conn, candidate=primary)
 
         return len(candidates)
+
+    def _resolve(self, request: MapRequest):
+        config = self.config_loader.load(request.config_path)
+        return self.resolver.resolve_map(
+            config=config,
+            cli=request.raw,
+            spec_name=request.spec_name,
+        )
 
     def _primary_title(self, candidate: DuplicateCandidate) -> DuplicateCandidate:
         return candidate

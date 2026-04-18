@@ -26,7 +26,7 @@ def titles_table(titles: list[TitleAggregate]) -> Table:
 
     for title in titles:
         total_runtime = title.runtime.confirmed_seconds + title.runtime.estimated_seconds
-        launches = title.launches.confirmed + title.launches.inferred
+        launches = title.launches.confirmed + title.launches.inferred + title.launches.gui
         table.add_row(
             title.title,
             format_duration(total_runtime),

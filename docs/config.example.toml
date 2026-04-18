@@ -1,0 +1,49 @@
+[defaults]
+active_profile = "ready"
+theme = "matrix"
+density = "rich"
+default_sources = ["security_log", "prefetch", "userassist", "amcache", "bam", "srum"]
+
+[defaults.reconstruction]
+session_merge_dedupe_window_minutes = 2
+duplicate_auto_merge = false
+duplicate_similarity_threshold = 0.85
+minimum_evidence_confidence = "low"
+
+[defaults.classification]
+overrides = {}
+
+[scan]
+full = false
+
+[me]
+refresh = false
+
+[report]
+limit = 10
+
+[doctor]
+severity = "low"
+
+[titles]
+limit = 25
+sort_by = "runtime"
+
+[sessions]
+days = 30
+limit = 100
+
+[inspect]
+depth = "summary"
+
+[sources]
+depth = "summary"
+
+[map]
+auto = false
+
+[export]
+format = "json"
+
+[profiles.ready.report]
+limit = 10

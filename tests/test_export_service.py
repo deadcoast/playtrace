@@ -41,6 +41,43 @@ def test_export_service_writes_snapshot_driven_json(tmp_path: Path) -> None:
     assert payload["coverage"]["tracked_titles"] == 1
 
 
+def test_export_service_includes_gui_launch_counts(tmp_path: Path) -> None:
+    db_path = tmp_path / "playtrace.db"
+    output_path = tmp_path / "out.json"
+    db = Database(db_path)
+    db.bootstrap()
+    db.replace_titles(
+        [
+            TitleAggregate(
+                title_id="title:balatro",
+                title="Balatro",
+                classification=Classification.GAME,
+                classification_confidence=ConfidenceLevel.HIGH,
+                title_confidence=ConfidenceLevel.HIGH,
+                launcher="Steam",
+            )
+        ]
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE titles SET launches_gui = ? WHERE title_id = ?",
+            (2, "title:balatro"),
+        )
+        conn.commit()
+
+    ExporterService().run(
+        ExportRequest(
+            db_path=db_path,
+            output_path=output_path,
+            format="json",
+        )
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert payload["titles"][0]["launches_gui"] == 2
+
+
 def test_export_service_reuses_loaded_snapshot_for_json(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "playtrace.db"
     output_path = tmp_path / "out.json"

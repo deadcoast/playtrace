@@ -5,23 +5,54 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from playtrace.config.loader import ConfigLoader
+from playtrace.config.resolver import ConfigResolver
+from playtrace.config.runtime import RawExportInput, UNSET
 from playtrace.store.db import Database
 from playtrace.utils.clock import Clock
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class ExportRequest:
     db_path: Path
     output_path: Path
-    format: str
+    config_path: Path | None
+    spec_name: str | None
+    raw: RawExportInput
+
+    def __init__(
+        self,
+        *,
+        db_path: Path,
+        output_path: Path,
+        config_path: Path | None = None,
+        spec_name: str | None = None,
+        raw: RawExportInput | None = None,
+        format: str | None = None,
+    ) -> None:
+        self.db_path = db_path
+        self.output_path = output_path
+        self.config_path = config_path
+        self.spec_name = spec_name
+        self.raw = raw or RawExportInput(format=format if format is not None else UNSET)
 
 
 class ExporterService:
+    def __init__(
+        self,
+        *,
+        config_loader: ConfigLoader | None = None,
+        resolver: ConfigResolver | None = None,
+    ) -> None:
+        self.config_loader = config_loader or ConfigLoader()
+        self.resolver = resolver or ConfigResolver()
+
     def run(self, request: ExportRequest) -> None:
         db = Database(request.db_path)
         db.bootstrap()
         snapshot = db.load_snapshot(limit=250)
-        format_name = request.format.lower()
+        resolved = self._resolve(request)
+        format_name = (resolved.format or "json").lower()
 
         if format_name == "json":
             payload = self._build_export_payload(
@@ -39,7 +70,15 @@ class ExporterService:
             request.output_path.write_text(self._build_markdown(snapshot), encoding="utf-8")
             return
 
-        raise ValueError(f"Unsupported export format: {request.format}")
+        raise ValueError(f"Unsupported export format: {resolved.format}")
+
+    def _resolve(self, request: ExportRequest):
+        config = self.config_loader.load(request.config_path)
+        return self.resolver.resolve_export(
+            config=config,
+            cli=request.raw,
+            spec_name=request.spec_name,
+        )
 
     def _build_export_payload(self, *, snapshot, sessions) -> dict[str, object]:
         return {
@@ -62,6 +101,7 @@ class ExporterService:
                     "estimated_seconds": title.runtime.estimated_seconds,
                     "launches_confirmed": title.launches.confirmed,
                     "launches_inferred": title.launches.inferred,
+                    "launches_gui": title.launches.gui,
                 }
                 for title in snapshot.top_titles
             ],
@@ -94,6 +134,7 @@ class ExporterService:
                     "estimated_seconds",
                     "launches_confirmed",
                     "launches_inferred",
+                    "launches_gui",
                 ]
             )
             for title in titles:
@@ -107,6 +148,7 @@ class ExporterService:
                         title.runtime.estimated_seconds,
                         title.launches.confirmed,
                         title.launches.inferred,
+                        title.launches.gui,
                     ]
                 )
 
@@ -124,6 +166,6 @@ class ExporterService:
         for title in snapshot.top_titles:
             lines.append(
                 f"- {title.title}: {title.runtime.confirmed_seconds}s confirmed, "
-                f"{title.launches.confirmed + title.launches.inferred} launches"
+                f"{title.launches.confirmed + title.launches.inferred + title.launches.gui} launches"
             )
         return "\n".join(lines) + "\n"
