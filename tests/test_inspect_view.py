@@ -295,6 +295,118 @@ def test_inspect_view_uses_rebuilt_session_links(tmp_path: Path) -> None:
     assert detail.evidence_ids == ["evidence:end", "evidence:start"]
 
 
+def test_inspect_view_surfaces_alternate_titles_from_lineage(tmp_path: Path) -> None:
+    db_path = tmp_path / "playtrace.db"
+    db = Database(db_path)
+    db.bootstrap()
+
+    with db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO titles (
+                title_id, title, classification, classification_confidence, title_confidence,
+                launcher, confirmed_seconds, estimated_seconds, foreground_seconds,
+                runtime_confidence, launches_confirmed, launches_inferred, launches_gui,
+                launches_confidence, first_seen, last_seen, evidence_sources, tags, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "title:elden_ring",
+                "ELDEN RING",
+                "game",
+                "high",
+                "high",
+                "Steam",
+                600,
+                0,
+                0,
+                "exact",
+                1,
+                0,
+                0,
+                "high",
+                None,
+                None,
+                json.dumps(["security_log", "prefetch"]),
+                json.dumps([]),
+                json.dumps([]),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO executables (
+                exe_id, normalized_key, path, filename, original_filename, product_name,
+                file_description, signer, company_name, sha1, classification,
+                classification_confidence, ignored, first_seen, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "path:d:\\games\\elden ring\\eldenring.exe",
+                "path:d:\\games\\elden ring\\eldenring.exe",
+                r"D:\Games\ELDEN RING\eldenring.exe",
+                "eldenring.exe",
+                "eldenring.exe",
+                "ELDEN RING",
+                "ELDEN RING",
+                None,
+                None,
+                None,
+                "game",
+                "high",
+                0,
+                None,
+                None,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO executables (
+                exe_id, normalized_key, path, filename, original_filename, product_name,
+                file_description, signer, company_name, sha1, classification,
+                classification_confidence, ignored, first_seen, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "path:d:\\games\\eldenring\\eldenring_dx12.exe",
+                "path:d:\\games\\eldenring\\eldenring_dx12.exe",
+                r"D:\Games\eldenring\eldenring_dx12.exe",
+                "eldenring_dx12.exe",
+                "eldenring_dx12.exe",
+                "eldenring",
+                "eldenring",
+                None,
+                None,
+                None,
+                "game",
+                "medium",
+                0,
+                None,
+                None,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO title_executables (title_id, exe_id) VALUES (?, ?)",
+            ("title:elden_ring", "path:d:\\games\\elden ring\\eldenring.exe"),
+        )
+        conn.execute(
+            "INSERT INTO title_executables (title_id, exe_id) VALUES (?, ?)",
+            ("title:elden_ring", "path:d:\\games\\eldenring\\eldenring_dx12.exe"),
+        )
+        conn.commit()
+
+    detail = InspectorService().load(
+        InspectRequest(
+            db_path=db_path,
+            theme="mono",
+            density="comfortable",
+            target="ELDEN RING",
+        )
+    )
+
+    assert "eldenring" in detail.alternate_titles
+    assert detail.confidence_reasoning
+
+
 def test_inspect_view_uses_title_executable_evidence_when_sessions_are_missing(
     tmp_path: Path,
 ) -> None:
