@@ -98,3 +98,40 @@ def test_doctor_snapshot_can_hold_environment_and_data_findings() -> None:
             summary="No sessions available",
         )
     ]
+
+
+def test_doctor_service_preview_repair_does_not_apply_without_yes(tmp_path: Path) -> None:
+    class StubRebuildService:
+        def __init__(self) -> None:
+            self.plan_calls = 0
+            self.apply_calls = 0
+
+        def plan(self, db_path: Path, settings=None):
+            self.plan_calls += 1
+            return object()
+
+        def apply(self, db_path: Path, *, preview, confirmed: bool):
+            self.apply_calls += 1
+            return preview
+
+    rebuild_service = StubRebuildService()
+
+    DoctorService(
+        audit_service=StubAuditService(),
+        rebuild_service=rebuild_service,
+    ).render(
+        DoctorRequest(
+            db_path=tmp_path / "playtrace.db",
+            theme="mono",
+            repair=True,
+            yes=False,
+        )
+    )
+
+    assert rebuild_service.plan_calls == 1
+    assert rebuild_service.apply_calls == 0
+
+
+class StubAuditService:
+    def load(self, request: object) -> DoctorSnapshot:
+        return DoctorSnapshot(environment_findings=[], data_findings=[])

@@ -39,6 +39,27 @@ def test_scan_command_never_finishes_without_rendering_summary(tmp_path: Path, c
     assert "Source Status" in output
 
 
+def test_scan_service_preview_rebuild_does_not_apply_without_yes(tmp_path: Path) -> None:
+    rebuild_service = _StubRebuildService()
+
+    ScannerService(
+        collectors=[_SuccessfulCollector()],
+        parsers=[_SuccessfulParser()],
+        rebuild_service=rebuild_service,
+    ).render(
+        ScanRequest(
+            db_path=tmp_path / "playtrace.db",
+            config_path=None,
+            raw=None,
+            rebuild=True,
+            yes=False,
+        )
+    )
+
+    assert rebuild_service.plan_calls == 1
+    assert rebuild_service.apply_calls == 0
+
+
 @dataclass(slots=True)
 class _SuccessfulCollector:
     name: str = "security_log"
@@ -95,3 +116,17 @@ class _PassthroughParser:
 
     def parse(self, artifacts) -> list[EvidenceRecord]:
         return []
+
+
+class _StubRebuildService:
+    def __init__(self) -> None:
+        self.plan_calls = 0
+        self.apply_calls = 0
+
+    def plan(self, db_path: Path, settings=None):
+        self.plan_calls += 1
+        return object()
+
+    def apply(self, db_path: Path, *, preview, confirmed: bool):
+        self.apply_calls += 1
+        return preview

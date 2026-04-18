@@ -47,3 +47,5 @@ def test_audit_engine_reports_blocked_sources_and_duplicate_titles(tmp_path: Pat
 
     assert "not-admin" in environment_codes
     assert "duplicate-titles" in data_codes
+    duplicate_finding = next(finding for finding in snapshot.data_findings if finding.code == "duplicate-titles")
+    assert any("doctor --repair" in step for step in duplicate_finding.remediation)
