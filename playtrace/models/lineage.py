@@ -9,7 +9,9 @@ class LineageContribution:
     evidence_type: str
     strength: str
     observed_at: str | None = None
+    evidence_id: str | None = None
     raw_ref: str | None = None
+    title_hint: str | None = None
     reasoning: str = ""
 
 

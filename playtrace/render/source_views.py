@@ -22,6 +22,7 @@ def render_sources(console: Console, theme: Theme, snapshot: SourcesSnapshot) ->
     table.add_column("Strength")
     table.add_column("Observed")
     table.add_column("Reference")
+    table.add_column("Reasoning")
 
     for entry in snapshot.entries:
         table.add_row(
@@ -30,11 +31,14 @@ def render_sources(console: Console, theme: Theme, snapshot: SourcesSnapshot) ->
             entry.strength,
             entry.observed_at or "—",
             entry.raw_ref,
+            entry.reasoning or "—",
         )
 
     console.print(table)
     if not snapshot.entries:
         console.print(Text("No evidence matched this target.", style=theme.dim))
+    if snapshot.conflicts:
+        console.print(Panel("\n".join(snapshot.conflicts), title="Conflicts", border_style=theme.warn))
 
 
 def render_inspection(console: Console, theme: Theme, detail: InspectionDetail) -> None:
@@ -55,6 +59,11 @@ def render_inspection(console: Console, theme: Theme, detail: InspectionDetail) 
         style=theme.text,
     )
     body.append(
+        "Alternate titles: "
+        f"{', '.join(detail.alternate_titles) if detail.alternate_titles else 'none'}\n",
+        style=theme.text,
+    )
+    body.append(
         f"Parent chains: {detail.parent_chains if detail.parent_chains else 'none'}\n",
         style=theme.text,
     )
@@ -64,4 +73,7 @@ def render_inspection(console: Console, theme: Theme, detail: InspectionDetail) 
         f"{' | '.join(detail.confidence_reasoning) if detail.confidence_reasoning else 'none'}",
         style=theme.text,
     )
+    if detail.conflicts:
+        body.append("\nConflicts: ", style=theme.text)
+        body.append(" | ".join(detail.conflicts), style=theme.warn)
     console.print(Panel(body, border_style=theme.accent))
