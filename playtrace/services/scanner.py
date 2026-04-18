@@ -14,8 +14,10 @@ from playtrace.ingest.orchestrator import IngestOrchestrator, IngestSourceStatus
 from playtrace.ingest.registry import build_collectors, build_parsers
 from playtrace.parsers.base import CollectContext
 from playtrace.render.console import build_console
+from playtrace.render.repair_views import render_repair_preview
 from playtrace.render.scan_views import render_scan
 from playtrace.render.theme import get_theme
+from playtrace.services.rebuild import RebuildService
 from playtrace.store.db import Database
 
 
@@ -25,6 +27,8 @@ class ScanRequest:
     config_path: Path | None
     spec_name: str | None
     raw: RawScanInput
+    rebuild: bool
+    yes: bool
 
     def __init__(
         self,
@@ -37,10 +41,14 @@ class ScanRequest:
         full: bool | None = None,
         theme: str | None = None,
         density: str | None = None,
+        rebuild: bool = False,
+        yes: bool = False,
     ) -> None:
         self.db_path = db_path
         self.config_path = config_path
         self.spec_name = spec_name
+        self.rebuild = rebuild
+        self.yes = yes
         self.raw = raw or RawScanInput(
             sources=list(sources) if sources else UNSET,
             full=full if full is not None else UNSET,
@@ -78,11 +86,13 @@ class ScannerService:
         *,
         collectors: Sequence | None = None,
         parsers: Sequence | None = None,
+        rebuild_service: RebuildService | None = None,
         config_loader: ConfigLoader | None = None,
         resolver: ConfigResolver | None = None,
     ) -> None:
         self.collectors = list(collectors) if collectors is not None else build_collectors()
         self.parsers = list(parsers) if parsers is not None else build_parsers()
+        self.rebuild_service = rebuild_service or RebuildService()
         self.config_loader = config_loader or ConfigLoader()
         self.resolver = resolver or ConfigResolver()
 
@@ -145,6 +155,16 @@ class ScannerService:
         console = build_console()
         theme = get_theme(resolved.presentation.theme)
         render_scan(console, theme, snapshot)
+        if request.rebuild:
+            preview = self.rebuild_service.plan(request.db_path, settings=resolved.reconstruction)
+            render_repair_preview(console, theme, preview, title="Repair Preview")
+            if request.yes:
+                self.rebuild_service.apply(
+                    request.db_path,
+                    preview=preview,
+                    confirmed=True,
+                    settings=resolved.reconstruction,
+                )
         return snapshot
 
     def _resolve(self, request: ScanRequest):

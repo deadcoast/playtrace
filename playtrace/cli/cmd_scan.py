@@ -21,6 +21,8 @@ def register_scan(app: typer.Typer) -> None:
             help="Limit scan to one or more sources: security_log, prefetch, userassist, srum, amcache, bam.",
         ),
         full: bool | None = typer.Option(None, "--full/--no-full", help="Force a full rescan."),
+        rebuild: bool = typer.Option(False, "--rebuild", help="Preview a reconstruction repair after scanning."),
+        yes: bool = typer.Option(False, "--yes", help="Apply repair mutations after a rebuild preview."),
         theme: ThemeOption = None,
         density: DensityOption = None,
     ) -> None:
@@ -28,6 +30,8 @@ def register_scan(app: typer.Typer) -> None:
             db_path=db,
             config_path=config,
             spec_name=spec,
+            rebuild=rebuild,
+            yes=yes,
             raw=RawScanInput(
                 sources=list(sources) if sources else UNSET,
                 full=full if full is not None else UNSET,

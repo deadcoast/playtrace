@@ -135,7 +135,8 @@ class AuditService:
                     code="duplicate-titles",
                     summary=f"{duplicate_groups} suspected duplicate title groups were found in the database.",
                     remediation=[
-                        "Review title mappings and merge duplicate titles before trusting aggregate runtime totals.",
+                        "Run `playtrace doctor --repair` to preview a repair plan for duplicate titles.",
+                        "Use `playtrace scan --rebuild --yes` after collecting fresh evidence if you want to apply repaired reconstruction directly.",
                     ],
                 )
             )

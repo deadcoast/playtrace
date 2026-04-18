@@ -5,6 +5,7 @@ from pathlib import Path
 
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
+from playtrace.models.repair import RepairCounts, RepairPreview
 from playtrace.services.scanner import ScanRequest, ScannerService
 
 
@@ -125,7 +126,7 @@ class _StubRebuildService:
 
     def plan(self, db_path: Path, settings=None):
         self.plan_calls += 1
-        return object()
+        return RepairPreview(counts=RepairCounts())
 
     def apply(self, db_path: Path, *, preview, confirmed: bool):
         self.apply_calls += 1

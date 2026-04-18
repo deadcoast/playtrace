@@ -363,6 +363,15 @@ class Database:
         self,
         settings: ReconstructionSettings | None = None,
     ) -> None:
+        executables, sessions, titles = self.build_reconstruction_state(settings=settings)
+        self.replace_executables(executables)
+        self.replace_sessions(sessions)
+        self.replace_titles(titles)
+
+    def build_reconstruction_state(
+        self,
+        settings: ReconstructionSettings | None = None,
+    ) -> tuple[list[ExecutableIdentity], list[SessionRecord], list[TitleAggregate]]:
         from playtrace.merge.sessions import SessionMerger
         from playtrace.merge.sessions import SessionMergeConfig
         from playtrace.merge.titles import TitleAggregator
@@ -426,9 +435,7 @@ class Database:
         for session in sessions:
             session.title_id = title_ids_by_executable.get(session.exe_id)
 
-        self.replace_executables(list(executable_map.values()))
-        self.replace_sessions(sessions)
-        self.replace_titles(titles)
+        return list(executable_map.values()), sessions, titles
 
     def seed_demo_data(self) -> None:
         with self.connect() as conn:
