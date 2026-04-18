@@ -10,6 +10,7 @@ from playtrace.models.enums import (
     RuntimeConfidence,
     SourceName,
 )
+from tests.support.reconstruction_cases import split_session_case
 
 
 def test_session_merger_pairs_4688_and_4689_by_pid() -> None:
@@ -160,3 +161,12 @@ def test_session_merger_uses_evidence_id_when_timestamp_missing() -> None:
         "path:d:\\games\\balatro\\balatro.exe:session:42:none:evidence:start:a",
         "path:d:\\games\\balatro\\balatro.exe:session:42:none:evidence:start:b",
     }
+
+
+def test_session_merger_keeps_launcher_child_continuity_in_one_session() -> None:
+    case = split_session_case()
+
+    sessions = SessionMerger().build_sessions(case.evidence)
+
+    assert len(sessions) == 1
+    assert sessions[0].confidence is RuntimeConfidence.EXACT

@@ -10,6 +10,10 @@ from playtrace.models.executable import ExecutableIdentity
 from playtrace.models.mapping import UserMapping
 from playtrace.models.session import SessionRecord
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
+from tests.support.reconstruction_cases import (
+    duplicate_title_case,
+    weak_title_case,
+)
 
 
 def test_launcher_child_rule_prefers_longest_lived_game_process() -> None:
@@ -276,6 +280,24 @@ def test_title_aggregator_uses_non_session_evidence_for_launches_and_sources() -
     assert title.evidence_sources == ["userassist"]
     assert title.first_seen == datetime(2026, 4, 16, 8, 40, 52, 798000, tzinfo=timezone.utc)
     assert title.last_seen == datetime(2026, 4, 16, 8, 40, 52, 798000, tzinfo=timezone.utc)
+
+
+def test_title_resolver_prefers_evidence_backed_game_binary_over_launcher_labels() -> None:
+    case = duplicate_title_case()
+
+    result = TitleResolver().resolve(case.executables, case.sessions, mappings=[])
+
+    assert [title.title for title in result.titles] == ["ELDEN RING"]
+    assert result.duplicate_candidates == []
+
+
+def test_title_resolver_preserves_ambiguity_when_evidence_is_too_weak() -> None:
+    case = weak_title_case()
+
+    result = TitleResolver().resolve(case.executables, case.sessions, mappings=[])
+
+    assert result.titles[0].title_confidence is ConfidenceLevel.UNKNOWN
+    assert "ambiguous" in " ".join(getattr(result.titles[0], "notes", [])).lower()
 
 
 def _exe(
