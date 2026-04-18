@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from playtrace.classify.heuristics import choose_primary_executable
 from playtrace.classify.resolver import ResolvedTitle, TitleResolver
 from playtrace.merge.titles import TitleAggregator
 from playtrace.models.evidence import EvidenceRecord
@@ -226,6 +227,27 @@ def test_duplicate_candidates_prefer_higher_confidence_titles() -> None:
     assert len(candidates) == 1
     assert candidates[0].primary_title_id == "title:elden-ring"
     assert candidates[0].primary_title == "ELDEN RING"
+
+
+def test_choose_primary_executable_returns_candidate_when_all_scores_are_negative() -> None:
+    launcher = _exe(
+        exe_id="path:c:\\program files (x86)\\steam\\steam.exe",
+        path=r"C:\Program Files (x86)\Steam\steam.exe",
+        filename="steam.exe",
+        product_name="Steam",
+    )
+    helper = _exe(
+        exe_id="path:c:\\games\\elden ring\\support\\helper.exe",
+        path=r"C:\Games\ELDEN RING\Support\helper.exe",
+        filename="helper.exe",
+        product_name="Helper",
+    )
+    launcher.classification = Classification.LAUNCHER
+    helper.classification = Classification.HELPER
+
+    primary = choose_primary_executable([launcher, helper], [])
+
+    assert primary is launcher
 
 
 def test_title_aggregator_uses_non_session_evidence_for_launches_and_sources() -> None:

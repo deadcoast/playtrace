@@ -21,27 +21,50 @@ class LineageService:
     def load_entity(self, db_path: Path, target: str) -> EntityLineageSnapshot:
         db = Database(db_path)
         db.bootstrap()
-        normalized_target = self.normalizer.normalize_executable_target(target)
-
         with db.connect() as conn:
-            title_row = self._find_title_row(conn, target, normalized_target)
-            if title_row is None:
-                sources_snapshot = self.load_sources(db_path, target)
-                return EntityLineageSnapshot(
-                    title=target,
-                    runtime_confidence="unknown",
-                    confidence_reasons=["No persisted title matched this target yet."],
-                    contributions=sources_snapshot.contributions,
-                    conflicts=sources_snapshot.conflicts,
-                )
+            return self._load_entity(db=db, conn=conn, target=target)
 
-            executable_rows = self._load_executables(conn, title_id=str(title_row["title_id"]))
-            evidence_rows = self._load_matching_evidence_rows(
-                conn,
+    def load_entities(self, db_path: Path, targets: list[str]) -> list[EntityLineageSnapshot]:
+        db = Database(db_path)
+        db.bootstrap()
+        with db.connect() as conn:
+            return [self._load_entity(db=db, conn=conn, target=target) for target in targets]
+
+    def load_sources(self, db_path: Path, target: str) -> SourcesLineageSnapshot:
+        db = Database(db_path)
+        db.bootstrap()
+        with db.connect() as conn:
+            _, executable_rows, evidence_rows = self._resolve_lineage_rows(
+                db=db,
+                conn=conn,
                 target=target,
-                normalized_target=normalized_target,
-                title=str(title_row["title"]),
-                executable_rows=executable_rows,
+            )
+
+        return SourcesLineageSnapshot(
+            target=target,
+            contributions=[self._to_contribution(row) for row in evidence_rows],
+            conflicts=self._collect_conflicts(evidence_rows),
+        )
+
+    def _load_entity(
+        self,
+        *,
+        db: Database,
+        conn: sqlite3.Connection,
+        target: str,
+    ) -> EntityLineageSnapshot:
+        title_row, executable_rows, evidence_rows = self._resolve_lineage_rows(
+            db=db,
+            conn=conn,
+            target=target,
+        )
+        if title_row is None:
+            return EntityLineageSnapshot(
+                title=target,
+                runtime_confidence="unknown",
+                confidence_reasons=["No persisted title matched this target yet."],
+                contributions=[self._to_contribution(row) for row in evidence_rows],
+                conflicts=self._collect_conflicts(evidence_rows),
             )
 
         return EntityLineageSnapshot(
@@ -60,131 +83,30 @@ class LineageService:
             conflicts=self._collect_conflicts(evidence_rows),
         )
 
-    def load_sources(self, db_path: Path, target: str) -> SourcesLineageSnapshot:
-        db = Database(db_path)
-        db.bootstrap()
+    def _resolve_lineage_rows(
+        self,
+        *,
+        db: Database,
+        conn: sqlite3.Connection,
+        target: str,
+    ) -> tuple[sqlite3.Row | None, list[sqlite3.Row], list[sqlite3.Row]]:
         normalized_target = self.normalizer.normalize_executable_target(target)
-
-        with db.connect() as conn:
-            title_row = self._find_title_row(conn, target, normalized_target)
-            executable_rows = self._load_executables(
-                conn,
-                title_id=str(title_row["title_id"]) if title_row is not None else None,
-                normalized_target=normalized_target,
-            )
-            evidence_rows = self._load_matching_evidence_rows(
-                conn,
+        title_row = db.find_lineage_title(target, normalized_target, conn=conn)
+        executable_rows = db.load_lineage_executables(
+            title_id=str(title_row["title_id"]) if title_row is not None else None,
+            normalized_target=normalized_target,
+            conn=conn,
+        )
+        evidence_rows = db.load_lineage_evidence_rows(
+            search_terms=self._search_terms(
                 target=target,
                 normalized_target=normalized_target,
                 title=str(title_row["title"]) if title_row is not None else None,
                 executable_rows=executable_rows,
-            )
-
-        return SourcesLineageSnapshot(
-            target=target,
-            contributions=[self._to_contribution(row) for row in evidence_rows],
-            conflicts=self._collect_conflicts(evidence_rows),
-        )
-
-    def _find_title_row(
-        self,
-        conn: sqlite3.Connection,
-        target: str,
-        normalized_target: str | None,
-    ) -> sqlite3.Row | None:
-        return conn.execute(
-            """
-            SELECT DISTINCT titles.*
-            FROM titles
-            LEFT JOIN title_executables
-              ON title_executables.title_id = titles.title_id
-            LEFT JOIN sessions
-              ON sessions.title_id = titles.title_id
-            WHERE lower(titles.title) = lower(?)
-               OR titles.title_id = ?
-               OR title_executables.exe_id = ?
-               OR sessions.exe_id = ?
-            LIMIT 1
-            """,
-            (
-                target,
-                target,
-                normalized_target or target,
-                normalized_target or target,
             ),
-        ).fetchone()
-
-    def _load_executables(
-        self,
-        conn: sqlite3.Connection,
-        *,
-        title_id: str | None = None,
-        normalized_target: str | None = None,
-    ) -> list[sqlite3.Row]:
-        clauses: list[str] = []
-        params: list[object] = []
-
-        if title_id:
-            clauses.append("title_executables.title_id = ?")
-            params.append(title_id)
-        if normalized_target:
-            clauses.append("executables.exe_id = ?")
-            params.append(normalized_target)
-
-        if not clauses:
-            return []
-
-        return conn.execute(
-            f"""
-            SELECT DISTINCT executables.*
-            FROM executables
-            LEFT JOIN title_executables
-              ON title_executables.exe_id = executables.exe_id
-            WHERE {' OR '.join(clauses)}
-            ORDER BY executables.exe_id ASC
-            """,
-            tuple(params),
-        ).fetchall()
-
-    def _load_matching_evidence_rows(
-        self,
-        conn: sqlite3.Connection,
-        *,
-        target: str,
-        normalized_target: str | None,
-        title: str | None,
-        executable_rows: list[sqlite3.Row],
-    ) -> list[sqlite3.Row]:
-        rows = conn.execute(
-            """
-            SELECT
-                artifacts.source AS artifact_source,
-                artifacts.payload AS artifact_payload,
-                artifacts.raw_ref AS raw_ref,
-                evidence_links.evidence_id AS evidence_id,
-                evidence_links.source AS evidence_source,
-                evidence_links.evidence_type AS evidence_type,
-                evidence_links.observed_at AS observed_at,
-                evidence_links.strength AS strength,
-                evidence_links.value AS evidence_value
-            FROM artifacts
-            LEFT JOIN evidence_links
-              ON evidence_links.artifact_id = artifacts.artifact_id
-            ORDER BY COALESCE(evidence_links.observed_at, artifacts.observed_at) DESC, artifacts.artifact_id DESC
-            """
-        ).fetchall()
-
-        search_terms = self._search_terms(
-            target=target,
-            normalized_target=normalized_target,
-            title=title,
-            executable_rows=executable_rows,
+            conn=conn,
         )
-        matched: list[sqlite3.Row] = []
-        for row in rows:
-            if self._matches_row(row, search_terms):
-                matched.append(row)
-        return matched
+        return title_row, executable_rows, evidence_rows
 
     def _search_terms(
         self,
@@ -229,17 +151,6 @@ class LineageService:
             add_term(row["file_description"])
 
         return terms
-
-    def _matches_row(self, row: sqlite3.Row, search_terms: list[str]) -> bool:
-        artifact_payload = self._json_object(row["artifact_payload"])
-        evidence_value = self._json_object(row["evidence_value"])
-        haystacks = [
-            str(row["raw_ref"] or "").lower(),
-            json.dumps(artifact_payload, sort_keys=True).lower(),
-            json.dumps(evidence_value, sort_keys=True).lower(),
-        ]
-        haystacks.extend(haystack.replace("\\\\", "\\") for haystack in list(haystacks))
-        return any(term in haystack for term in search_terms for haystack in haystacks if term)
 
     def _build_entity_reasons(
         self,

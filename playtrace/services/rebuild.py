@@ -13,6 +13,7 @@ class RebuildService:
         db_path: Path,
         settings: ReconstructionSettings | None = None,
     ) -> RepairPreview:
+        settings = settings or ReconstructionSettings()
         db = Database(db_path)
         db.bootstrap()
         current_titles = db.load_titles(
@@ -26,7 +27,15 @@ class RebuildService:
 
         title_changes = self._title_changes(current_titles, proposed_titles)
         session_changes = self._session_changes(current_sessions, proposed_sessions)
-        remaining_duplicate_groups = len(db._duplicate_groups(proposed_titles, threshold=0.75))
+        current_duplicate_groups = db.duplicate_groups(
+            current_titles,
+            threshold=settings.duplicate_similarity_threshold,
+        )
+        proposed_duplicate_groups = db.duplicate_groups(
+            proposed_titles,
+            threshold=settings.duplicate_similarity_threshold,
+        )
+        remaining_duplicate_groups = len(proposed_duplicate_groups)
         unresolved: list[str] = []
         if remaining_duplicate_groups:
             unresolved.append(
@@ -35,7 +44,11 @@ class RebuildService:
 
         return RepairPreview(
             counts=RepairCounts(
-                merged_titles=max(len(current_titles) - len(proposed_titles), 0),
+                merged_titles=max(
+                    self._duplicate_reduction(current_duplicate_groups)
+                    - self._duplicate_reduction(proposed_duplicate_groups),
+                    0,
+                ),
                 changed_titles=len(title_changes),
                 changed_sessions=len(session_changes),
                 remaining_duplicate_groups=remaining_duplicate_groups,
@@ -76,11 +89,39 @@ class RebuildService:
         return changes
 
     def _session_changes(self, current_sessions, proposed_sessions) -> list[str]:
-        current_ids = {session.session_id for session in current_sessions}
-        proposed_ids = {session.session_id for session in proposed_sessions}
+        current_lookup = {session.session_id: session for session in current_sessions}
+        proposed_lookup = {session.session_id: session for session in proposed_sessions}
+        current_ids = set(current_lookup)
+        proposed_ids = set(proposed_lookup)
         changes: list[str] = []
         for session_id in sorted(current_ids - proposed_ids):
             changes.append(f"remove session {session_id}")
         for session_id in sorted(proposed_ids - current_ids):
             changes.append(f"add session {session_id}")
+        for session_id in sorted(current_ids & proposed_ids):
+            if self._session_fingerprint(current_lookup[session_id]) != self._session_fingerprint(
+                proposed_lookup[session_id]
+            ):
+                changes.append(f"update session {session_id}")
         return changes
+
+    def _duplicate_reduction(self, groups) -> int:
+        return sum(max(len(group) - 1, 0) for group in groups)
+
+    def _session_fingerprint(self, session) -> tuple[object, ...]:
+        return (
+            session.title_id,
+            session.exe_id,
+            session.user_sid,
+            session.started_at,
+            session.ended_at,
+            session.duration_seconds,
+            session.foreground_seconds,
+            session.bytes_in,
+            session.bytes_out,
+            session.confidence,
+            tuple(session.evidence_sources),
+            tuple(session.evidence_ids),
+            tuple(session.parent_chain),
+            tuple(session.notes),
+        )

@@ -28,6 +28,111 @@ def test_lineage_service_surfaces_source_conflicts(tmp_path: Path) -> None:
     assert snapshot.conflicts
 
 
+def test_lineage_service_prefers_high_confidence_title_when_multiple_titles_match_target(
+    tmp_path: Path,
+) -> None:
+    db = Database(tmp_path / "playtrace.db")
+    db.bootstrap()
+    target = "path:d:\\games\\elden ring\\eldenring.exe"
+
+    with db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO titles (
+                title_id, title, classification, classification_confidence, title_confidence,
+                launcher, confirmed_seconds, estimated_seconds, foreground_seconds,
+                runtime_confidence, launches_confirmed, launches_inferred, launches_gui,
+                launches_confidence, first_seen, last_seen, evidence_sources, tags, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "title:elden_ring_beta",
+                "ELDEN RING Beta",
+                "game",
+                "medium",
+                "low",
+                "Steam",
+                0,
+                0,
+                0,
+                "estimated",
+                0,
+                1,
+                0,
+                "medium",
+                None,
+                None,
+                json.dumps(["prefetch"]),
+                json.dumps([]),
+                json.dumps([]),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO titles (
+                title_id, title, classification, classification_confidence, title_confidence,
+                launcher, confirmed_seconds, estimated_seconds, foreground_seconds,
+                runtime_confidence, launches_confirmed, launches_inferred, launches_gui,
+                launches_confidence, first_seen, last_seen, evidence_sources, tags, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "title:elden_ring",
+                "ELDEN RING",
+                "game",
+                "high",
+                "high",
+                "Steam",
+                7200,
+                0,
+                0,
+                "exact",
+                3,
+                0,
+                0,
+                "high",
+                None,
+                None,
+                json.dumps(["security_log"]),
+                json.dumps([]),
+                json.dumps([]),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO executables (
+                exe_id, normalized_key, path, filename, original_filename, product_name,
+                file_description, signer, company_name, sha1, classification,
+                classification_confidence, ignored, first_seen, last_seen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                target,
+                target,
+                r"D:\Games\ELDEN RING\eldenring.exe",
+                "eldenring.exe",
+                "eldenring.exe",
+                "ELDEN RING",
+                "ELDEN RING",
+                None,
+                None,
+                None,
+                "game",
+                "high",
+                0,
+                None,
+                None,
+            ),
+        )
+        conn.execute("INSERT INTO title_executables (title_id, exe_id) VALUES (?, ?)", ("title:elden_ring_beta", target))
+        conn.execute("INSERT INTO title_executables (title_id, exe_id) VALUES (?, ?)", ("title:elden_ring", target))
+        conn.commit()
+
+    snapshot = LineageService().load_entity(db.path, target=target)
+
+    assert snapshot.title == "ELDEN RING"
+
+
 def _seed_entity_lineage_database(tmp_path: Path) -> Database:
     db = Database(tmp_path / "playtrace.db")
     db.bootstrap()

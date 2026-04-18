@@ -133,6 +133,39 @@ def test_doctor_service_preview_repair_does_not_apply_without_yes(tmp_path: Path
     assert rebuild_service.apply_calls == 0
 
 
+def test_doctor_service_preview_repair_applies_with_yes(tmp_path: Path) -> None:
+    class StubRebuildService:
+        def __init__(self) -> None:
+            self.plan_calls = 0
+            self.apply_calls = 0
+
+        def plan(self, db_path: Path, settings=None):
+            self.plan_calls += 1
+            return RepairPreview(counts=RepairCounts())
+
+        def apply(self, db_path: Path, *, preview, confirmed: bool, settings=None):
+            assert confirmed is True
+            self.apply_calls += 1
+            return preview
+
+    rebuild_service = StubRebuildService()
+
+    DoctorService(
+        audit_service=StubAuditService(),
+        rebuild_service=rebuild_service,
+    ).render(
+        DoctorRequest(
+            db_path=tmp_path / "playtrace.db",
+            theme="mono",
+            repair=True,
+            yes=True,
+        )
+    )
+
+    assert rebuild_service.plan_calls == 1
+    assert rebuild_service.apply_calls == 1
+
+
 class StubAuditService:
     def load(self, request: object) -> DoctorSnapshot:
         return DoctorSnapshot(environment_findings=[], data_findings=[])

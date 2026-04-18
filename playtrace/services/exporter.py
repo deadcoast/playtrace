@@ -167,15 +167,17 @@ class ExporterService:
             limit=10_000,
         )
         duplicates = db.load_duplicate_candidates()
+        entities = self.lineage_service.load_entities(
+            request.db_path,
+            [title.title for title in titles],
+        )
         return {
             "scope": "lineage",
             "generated_at": Clock.format_iso8601(snapshot.generated_at),
             "host_name": snapshot.host_name,
             "entities": [
-                self._serialize_entity_lineage(
-                    self.lineage_service.load_entity(request.db_path, title.title)
-                )
-                for title in titles
+                self._serialize_entity_lineage(entity)
+                for entity in entities
             ],
             "duplicates": [
                 {

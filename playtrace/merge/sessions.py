@@ -182,7 +182,8 @@ class SessionMerger:
             return False
         if left.ended_at is None or right.started_at is None:
             return False
-        return right.started_at - left.ended_at <= self.config.dedupe_window
+        gap = right.started_at - left.ended_at
+        return timedelta(0) <= gap <= self.config.dedupe_window
 
     def _merge_session_pair(self, left: SessionRecord, right: SessionRecord) -> SessionRecord:
         started_at = left.started_at

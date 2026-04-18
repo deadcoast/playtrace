@@ -70,14 +70,14 @@ def choose_primary_executable(
     sessions: list[SessionRecord],
 ) -> ExecutableIdentity | None:
     best: ExecutableIdentity | None = None
-    best_score = -1
+    best_score: int | None = None
 
     for executable in executables:
         if executable.ignored:
             continue
 
         score = executable_identity_score(executable, sessions)
-        if score > best_score:
+        if best_score is None or score > best_score:
             best = executable
             best_score = score
 

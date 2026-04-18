@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from playtrace.models.enums import Classification, ConfidenceLevel
+from playtrace.models.lineage import EntityLineageSnapshot
 from playtrace.models.title import TitleAggregate
 from playtrace.services.exporter import ExportRequest, ExporterService
 from playtrace.store.db import Database
@@ -191,6 +192,58 @@ def test_export_service_writes_lineage_scope_json(tmp_path: Path) -> None:
     assert payload["entities"][0]["title"] == "ELDEN RING"
     assert "alternate_titles" in payload["entities"][0]
     assert "contributions" in payload["entities"][0]
+
+
+def test_export_service_uses_batch_lineage_loading_for_lineage_scope(tmp_path: Path) -> None:
+    db_path = tmp_path / "playtrace.db"
+    output_path = tmp_path / "lineage.json"
+    db = Database(db_path)
+    db.bootstrap()
+    db.replace_titles(
+        [
+            TitleAggregate(
+                title_id="title:elden_ring",
+                title="ELDEN RING",
+                classification=Classification.GAME,
+                classification_confidence=ConfidenceLevel.HIGH,
+                title_confidence=ConfidenceLevel.HIGH,
+                launcher="Steam",
+            )
+        ]
+    )
+
+    class BatchOnlyLineageService:
+        def __init__(self) -> None:
+            self.targets: list[str] = []
+
+        def load_entities(self, db_path: Path, targets: list[str]) -> list[EntityLineageSnapshot]:
+            self.targets = list(targets)
+            return [
+                EntityLineageSnapshot(
+                    title=target,
+                    runtime_confidence="unknown",
+                )
+                for target in targets
+            ]
+
+        def load_entity(self, db_path: Path, target: str) -> EntityLineageSnapshot:
+            raise AssertionError("lineage export should batch lineage loading")
+
+    lineage_service = BatchOnlyLineageService()
+
+    ExporterService(lineage_service=lineage_service).run(
+        ExportRequest(
+            db_path=db_path,
+            output_path=output_path,
+            format="json",
+            scope="lineage",
+        )
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert lineage_service.targets == ["ELDEN RING"]
+    assert payload["entities"][0]["title"] == "ELDEN RING"
 
 
 def test_export_service_writes_repair_preview_scope_json(tmp_path: Path) -> None:
