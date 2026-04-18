@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import re
 
-from playtrace.classify.heuristics import choose_primary_executable
+from playtrace.classify.heuristics import choose_primary_executable, normalize_title, title_similarity
 from playtrace.classify.rules import classify_executable, infer_launcher_name
 from playtrace.models.enums import Classification, ConfidenceLevel
 from playtrace.models.executable import ExecutableIdentity
@@ -21,6 +21,8 @@ class ResolvedTitle:
     title_confidence: ConfidenceLevel
     launcher: str | None
     primary_exe_id: str | None
+    alternate_titles: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     executable_ids: list[str] = field(default_factory=list)
     suppressed_executable_ids: list[str] = field(default_factory=list)
 
@@ -99,10 +101,18 @@ class TitleResolver:
         for group in groups:
             primary = choose_primary_executable(group, sessions) or group[0]
             primary_mapping = self._mapping_for_executable(primary, mapping_by_target)
-            title = primary_mapping.title if primary_mapping else self._title_from_executable(primary)
-            title_confidence = ConfidenceLevel.HIGH if primary_mapping else (
-                ConfidenceLevel.HIGH if primary.product_name else ConfidenceLevel.MEDIUM
+            observed_titles = self._observed_titles(group, primary_mapping)
+            title = (
+                primary_mapping.title
+                if primary_mapping and primary_mapping.title
+                else self._canonical_group_title(primary, observed_titles)
             )
+            title_confidence = (
+                ConfidenceLevel.HIGH
+                if primary_mapping and primary_mapping.title
+                else self._title_confidence(primary, observed_titles)
+            )
+            notes = self._title_notes(primary, primary_mapping, observed_titles, title_confidence)
             classification_confidence = (
                 ConfidenceLevel.HIGH
                 if primary_mapping and primary_mapping.classification
@@ -135,6 +145,12 @@ class TitleResolver:
                     title_confidence=title_confidence,
                     launcher=launcher,
                     primary_exe_id=primary.exe_id,
+                    alternate_titles=[
+                        candidate
+                        for candidate in observed_titles
+                        if candidate.casefold() != title.casefold()
+                    ],
+                    notes=notes,
                     executable_ids=executable_ids,
                     suppressed_executable_ids=suppressed,
                 )
@@ -151,6 +167,76 @@ class TitleResolver:
         if executable.filename:
             return executable.filename.rsplit(".", 1)[0]
         return executable.exe_id
+
+    def _observed_titles(
+        self,
+        executables: list[ExecutableIdentity],
+        mapping: UserMapping | None,
+    ) -> list[str]:
+        candidates: list[str] = []
+        if mapping and mapping.title:
+            candidates.append(mapping.title)
+        for executable in executables:
+            for candidate in [
+                executable.product_name,
+                executable.file_description,
+                executable.original_filename.rsplit(".", 1)[0] if executable.original_filename else None,
+                executable.filename.rsplit(".", 1)[0] if executable.filename else None,
+            ]:
+                if not candidate:
+                    continue
+                text = str(candidate).strip()
+                if text and text not in candidates:
+                    candidates.append(text)
+        return candidates
+
+    def _canonical_group_title(
+        self,
+        primary: ExecutableIdentity,
+        observed_titles: list[str],
+    ) -> str:
+        if primary.product_name:
+            return primary.product_name
+        if observed_titles:
+            return sorted(
+                observed_titles,
+                key=lambda item: (
+                    normalize_title(item) != normalize_title(primary.product_name or item),
+                    len(normalize_title(item)),
+                    item.casefold(),
+                ),
+            )[0]
+        return self._title_from_executable(primary)
+
+    def _title_confidence(
+        self,
+        primary: ExecutableIdentity,
+        observed_titles: list[str],
+    ) -> ConfidenceLevel:
+        if primary.product_name:
+            return ConfidenceLevel.HIGH
+        if len(observed_titles) > 1:
+            return ConfidenceLevel.LOW
+        return ConfidenceLevel.UNKNOWN
+
+    def _title_notes(
+        self,
+        primary: ExecutableIdentity,
+        mapping: UserMapping | None,
+        observed_titles: list[str],
+        confidence: ConfidenceLevel,
+    ) -> list[str]:
+        notes: list[str] = []
+        if mapping and mapping.title:
+            notes.append("Resolved from an explicit title override.")
+            return notes
+        if confidence is ConfidenceLevel.UNKNOWN:
+            notes.append("Ambiguous title because metadata is too weak to select a canonical label confidently.")
+        elif len(observed_titles) > 1:
+            notes.append("Multiple observed labels were collapsed into one canonical title.")
+        if primary.classification in self._suppressed_classifications():
+            notes.append("Primary executable is normally suppressed, so this title remains provisional.")
+        return notes
 
     def _launcher_name(self, executables: list[ExecutableIdentity]) -> str | None:
         for executable in executables:
@@ -234,8 +320,9 @@ class TitleResolver:
             mapping = self._mapping_for_executable(executable, mapping_by_target)
             if not self._is_title_candidate(executable, mapping):
                 continue
-            title = mapping.title if mapping else self._title_from_executable(executable)
-            title_groups.setdefault(title.casefold(), []).append(executable)
+            title = mapping.title if mapping and mapping.title else self._title_from_executable(executable)
+            key = normalize_title(title)
+            title_groups.setdefault(key or title.casefold(), []).append(executable)
 
         groups = list(title_groups.values())
         if groups:
@@ -263,21 +350,28 @@ class TitleResolver:
         }
 
     def _duplicate_candidates(self, titles: list[ResolvedTitle]) -> list[DuplicateCandidate]:
-        groups: dict[str, list[ResolvedTitle]] = {}
-        for title in titles:
-            normalized = re.sub(r"[^a-z0-9]+", "", title.title.casefold())
-            if not normalized:
-                continue
-            groups.setdefault(normalized, []).append(title)
-
         candidates: list[DuplicateCandidate] = []
-        for group in groups.values():
+        seen: set[str] = set()
+        for index, title in enumerate(titles):
+            if title.title_id in seen:
+                continue
+            group = [title]
+            reasons: list[str] = []
+            for related in titles[index + 1 :]:
+                duplicate_reasons = self._duplicate_reasons(title, related)
+                if not duplicate_reasons:
+                    continue
+                group.append(related)
+                reasons.extend(duplicate_reasons)
+                seen.add(related.title_id)
             if len(group) < 2:
                 continue
+            seen.add(title.title_id)
             primary = sorted(
                 group,
                 key=lambda item: (
                     self._CONFIDENCE_ORDER.get(item.title_confidence, 99),
+                    -len(normalize_title(item.title)),
                     item.title.casefold(),
                 ),
             )[0]
@@ -288,8 +382,28 @@ class TitleResolver:
                     primary_title=primary.title,
                     related_title_ids=[title.title_id for title in related],
                     related_titles=[title.title for title in related],
-                    reasons=["normalized title collision"],
+                    reasons=sorted(set(reasons)),
                 )
             )
 
         return candidates
+
+    def _duplicate_reasons(self, left: ResolvedTitle, right: ResolvedTitle) -> list[str]:
+        reasons: list[str] = []
+        normalized_left = normalize_title(left.title)
+        normalized_right = normalize_title(right.title)
+        if not normalized_left or not normalized_right:
+            return reasons
+        if normalized_left == normalized_right:
+            reasons.append("normalized title collision")
+            reasons.append("metadata-backed title similarity")
+            return reasons
+
+        if normalized_left in normalized_right or normalized_right in normalized_left:
+            reasons.append("metadata-backed title similarity")
+        similarity = title_similarity(left.title, right.title)
+        if similarity >= 0.70:
+            reasons.append("metadata-backed title similarity")
+        if left.launcher and right.launcher and left.launcher == right.launcher:
+            reasons.append("shared launcher ancestry")
+        return reasons

@@ -12,6 +12,7 @@ from playtrace.models.session import SessionRecord
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
 from tests.support.reconstruction_cases import (
     duplicate_title_case,
+    duplicate_title_case_with_remaining_ambiguity,
     weak_title_case,
 )
 
@@ -159,25 +160,11 @@ def test_title_aggregator_emits_multiple_titles_for_independent_games() -> None:
 
 
 def test_title_resolution_emits_duplicate_candidates_for_similar_executables() -> None:
-    primary = _exe(
-        exe_id="path:d:\\games\\elden ring\\eldenring.exe",
-        path=r"D:\Games\ELDEN RING\eldenring.exe",
-        filename="eldenring.exe",
-        product_name="ELDEN RING",
-    )
-    related = _exe(
-        exe_id="path:d:\\games\\eldenring\\eldenring_dx12.exe",
-        path=r"D:\Games\eldenring\eldenring_dx12.exe",
-        filename="eldenring_dx12.exe",
-        product_name="eldenring",
-    )
+    case = duplicate_title_case_with_remaining_ambiguity()
 
     result = TitleResolver().resolve(
-        [primary, related],
-        [
-            _session(primary.exe_id, 3600, []),
-            _session(related.exe_id, 1200, []),
-        ],
+        case.executables,
+        case.sessions,
         mappings=[],
     )
 
@@ -298,6 +285,15 @@ def test_title_resolver_preserves_ambiguity_when_evidence_is_too_weak() -> None:
 
     assert result.titles[0].title_confidence is ConfidenceLevel.UNKNOWN
     assert "ambiguous" in " ".join(getattr(result.titles[0], "notes", [])).lower()
+
+
+def test_duplicate_candidates_include_lineage_reasoning() -> None:
+    case = duplicate_title_case_with_remaining_ambiguity()
+
+    result = TitleResolver().resolve(case.executables, case.sessions, mappings=[])
+
+    assert result.duplicate_candidates[0].reasons
+    assert "metadata" in " ".join(result.duplicate_candidates[0].reasons).lower()
 
 
 def _exe(

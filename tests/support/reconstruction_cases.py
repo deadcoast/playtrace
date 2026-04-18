@@ -46,6 +46,30 @@ def duplicate_title_case() -> ReconstructionCase:
     )
 
 
+def duplicate_title_case_with_remaining_ambiguity() -> ReconstructionCase:
+    primary = _executable(
+        exe_id="path:d:\\games\\elden ring\\eldenring.exe",
+        path=r"D:\Games\ELDEN RING\eldenring.exe",
+        filename="eldenring.exe",
+        product_name="ELDEN RING",
+    )
+    related = _executable(
+        exe_id="path:d:\\games\\elden ring deluxe\\eldenring-deluxe.exe",
+        path=r"D:\Games\ELDEN RING Deluxe\eldenring-deluxe.exe",
+        filename="eldenring-deluxe.exe",
+        product_name="Elden Ring Deluxe",
+    )
+    sessions = [
+        _session(primary.exe_id, 3600),
+        _session(related.exe_id, 900),
+    ]
+    return ReconstructionCase(
+        executables=[primary, related],
+        sessions=sessions,
+        evidence=[],
+    )
+
+
 def weak_title_case() -> ReconstructionCase:
     unknown = ExecutableIdentity(
         exe_id="path:d:\\games\\mystery\\bootstrap.exe",

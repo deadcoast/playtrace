@@ -170,3 +170,26 @@ def test_session_merger_keeps_launcher_child_continuity_in_one_session() -> None
 
     assert len(sessions) == 1
     assert sessions[0].confidence is RuntimeConfidence.EXACT
+
+
+def test_session_merger_emits_ambiguity_note_when_exact_pairing_is_missing() -> None:
+    start = EvidenceRecord(
+        evidence_id="evidence:start:partial",
+        artifact_id="artifact:start:partial",
+        source=SourceName.SECURITY_LOG,
+        evidence_type=EvidenceType.PROCESS_START,
+        observed_at=datetime(2026, 4, 18, 18, 0, 0, tzinfo=timezone.utc),
+        strength=EvidenceStrength.EXACT,
+        value={
+            "pid": 404,
+            "parent_pid": 90,
+            "exe_path": r"D:\Games\Balatro\balatro.exe",
+            "user_sid": "S-1-5-21-demo",
+        },
+    )
+
+    sessions = SessionMerger().build_sessions([start])
+
+    assert len(sessions) == 1
+    assert sessions[0].confidence is RuntimeConfidence.UNKNOWN
+    assert any("missing exit" in note.lower() for note in sessions[0].notes)

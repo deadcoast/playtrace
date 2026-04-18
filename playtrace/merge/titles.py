@@ -46,6 +46,8 @@ class TitleAggregator:
                 title_confidence=resolved.title_confidence,
                 launcher=resolved.launcher,
                 primary_exe_id=resolved.primary_exe_id,
+                alternate_titles=list(resolved.alternate_titles),
+                notes=list(resolved.notes),
                 executable_ids=list(resolved.executable_ids),
                 suppressed_executable_ids=list(resolved.suppressed_executable_ids),
             )
