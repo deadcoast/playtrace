@@ -174,3 +174,65 @@ def test_sources_view_surfaces_conflicts_between_sources(tmp_path: Path) -> None
     )
 
     assert snapshot.conflicts
+
+
+def test_sources_render_handles_conflict_panel(tmp_path: Path, capsys) -> None:
+    db_path = tmp_path / "playtrace.db"
+    db = Database(db_path)
+    db.bootstrap()
+    scan_run_id = db.create_scan_run(["security_log", "userassist"])
+    target = r"C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe"
+
+    artifacts = [
+        RawArtifact(
+            artifact_id="artifact:security",
+            scan_run_id=scan_run_id,
+            source=SourceName.SECURITY_LOG,
+            observed_at=datetime(2026, 4, 18, 18, 0, 0, tzinfo=timezone.utc),
+            raw_ref="security_log:4688:200",
+            payload={"exe_path": target},
+        ),
+        RawArtifact(
+            artifact_id="artifact:userassist",
+            scan_run_id=scan_run_id,
+            source=SourceName.USERASSIST,
+            observed_at=datetime(2026, 4, 18, 18, 0, 10, tzinfo=timezone.utc),
+            raw_ref="userassist:battlenet",
+            payload={"exe_path": target},
+        ),
+    ]
+    evidence = [
+        EvidenceRecord(
+            evidence_id="evidence:security",
+            artifact_id="artifact:security",
+            source=SourceName.SECURITY_LOG,
+            evidence_type=EvidenceType.PROCESS_START,
+            observed_at=datetime(2026, 4, 18, 18, 0, 0, tzinfo=timezone.utc),
+            strength=EvidenceStrength.EXACT,
+            value={"exe_path": target, "title_hint": "Battle.net Launcher"},
+        ),
+        EvidenceRecord(
+            evidence_id="evidence:userassist",
+            artifact_id="artifact:userassist",
+            source=SourceName.USERASSIST,
+            evidence_type=EvidenceType.INTERACTIVE_LAUNCH,
+            observed_at=datetime(2026, 4, 18, 18, 0, 10, tzinfo=timezone.utc),
+            strength=EvidenceStrength.INTERACTIVE,
+            value={"exe_path": target, "title_hint": "Battle.net"},
+        ),
+    ]
+    db.replace_artifacts_for_scan(scan_run_id, artifacts)
+    db.replace_evidence_for_scan(scan_run_id, evidence)
+    db.finish_scan_run(scan_run_id, [])
+
+    SourcesService().render(
+        SourcesRequest(
+            db_path=db_path,
+            target=target,
+            theme="mono",
+        )
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Conflicts" in output

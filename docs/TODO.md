@@ -14,5 +14,9 @@ This file tracks the current recovery status. Completed rollout items are also s
 
 ## Remaining Follow-Up
 
-- [ ] Refine real-world title and session reconstruction heuristics on larger live datasets.
-- [ ] Expand the polished visual language further across `inspect`, `sources`, and `export`.
+- [x] Refine real-world title and session reconstruction heuristics on larger live datasets.
+- [x] Expand the polished visual language further across `inspect`, `sources`, and `export`.
+
+## Validation Note
+
+- [x] `2026-04-18`: Reconstruction/lineage follow-up validated in the isolated worktree with focused reconstruction matrix `94 passed`, full suite `168 passed`, and hands-on command checks for `scan --rebuild`, `doctor --repair`, `inspect`, `sources`, and export scopes recorded in `docs/VALTEST.md`.

@@ -37,8 +37,8 @@ def render_repair_preview(console: Console, theme: Theme, preview: RepairPreview
     if preview.unresolved:
         console.print(
             Panel(
-                Text("\n".join(preview.unresolved), style=theme.warn),
+                Text("\n".join(preview.unresolved), style=theme.warning),
                 title="Unresolved",
-                border_style=theme.warn,
+                border_style=theme.warning,
             )
         )

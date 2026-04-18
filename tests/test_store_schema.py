@@ -490,7 +490,7 @@ def test_rebuild_uses_configured_duplicate_auto_merge(tmp_path: Path) -> None:
     db.bootstrap()
     _seed_duplicate_evidence(
         db,
-        product_names=["ELDEN RING", "eldenring"],
+        product_names=["ELDENRING DX12", "ELDENRING DX13"],
     )
 
     db.rebuild_from_artifacts_and_mappings()

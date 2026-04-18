@@ -38,7 +38,13 @@ def render_sources(console: Console, theme: Theme, snapshot: SourcesSnapshot) ->
     if not snapshot.entries:
         console.print(Text("No evidence matched this target.", style=theme.dim))
     if snapshot.conflicts:
-        console.print(Panel("\n".join(snapshot.conflicts), title="Conflicts", border_style=theme.warn))
+        console.print(
+            Panel(
+                "\n".join(snapshot.conflicts),
+                title="Conflicts",
+                border_style=theme.warning,
+            )
+        )
 
 
 def render_inspection(console: Console, theme: Theme, detail: InspectionDetail) -> None:
@@ -75,5 +81,5 @@ def render_inspection(console: Console, theme: Theme, detail: InspectionDetail) 
     )
     if detail.conflicts:
         body.append("\nConflicts: ", style=theme.text)
-        body.append(" | ".join(detail.conflicts), style=theme.warn)
+        body.append(" | ".join(detail.conflicts), style=theme.warning)
     console.print(Panel(body, border_style=theme.accent))

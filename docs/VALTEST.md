@@ -11,6 +11,7 @@ Validation roots:
 - Basics: `C:\Users\ryanf\AppData\Local\Temp\playtrace-valtest-20260417-141543`
 - Flags/options: `C:\Users\ryanf\AppData\Local\Temp\playtrace-valflags-20260417-141908`
 - Config hierarchy: `C:\Users\ryanf\AppData\Local\Temp\playtrace-config-val-20260417`
+- Reconstruction/lineage: `C:\Users\ryanf\github\_new\playtrace\.worktrees\codex-reconstruction-lineage-inline\.valtest`
 
 ## Method
 
@@ -111,3 +112,45 @@ Validation roots:
 
 - Focused config suite -> `98 passed`
 - `uv run pytest -q` -> `148 passed`
+
+## Reconstruction And Lineage Validation
+
+Date: `2026-04-18`
+
+Validation root:
+
+- `C:\Users\ryanf\github\_new\playtrace\.worktrees\codex-reconstruction-lineage-inline\.valtest`
+
+Automated verification:
+
+- Focused reconstruction matrix: `uv run pytest tests/test_title_resolution.py tests/test_merge_sessions.py tests/test_rebuild_service.py tests/test_lineage_service.py tests/test_scan_service.py tests/test_doctor.py tests/test_inspect_view.py tests/test_sources_command.py tests/test_export_service.py tests/test_config_loader.py tests/test_config_resolver.py tests/test_command_config_integration.py -q` -> `94 passed`
+- Full suite: `uv run pytest -q` -> `168 passed`
+
+Hands-on command matrix against a copied `playtrace.db`:
+
+| Command | Status | Result |
+| --- | --- | --- |
+| `playtrace scan --db <copy> --theme mono` | Pass | Exit `0`. Rendered the scan dashboard with live source status and no scaffold/sample injection. |
+| `playtrace scan --db <copy> --rebuild` | Pass | Exit `0`. Rendered the repair preview without mutating the copied database. |
+| `playtrace scan --db <copy> --rebuild --yes` | Pass | Exit `0`. Applied the explicit rebuild flow after preview on the copied database. |
+| `playtrace doctor --db <copy> --theme mono` | Pass | Exit `0`. Rendered environment findings, data findings, and remediation guidance. |
+| `playtrace doctor --db <copy> --repair` | Pass | Exit `0`. Rendered the same repair preview from the diagnostic entrypoint without mutating. |
+| `playtrace doctor --db <copy> --repair --yes` | Pass | Exit `0`. Applied the explicit repair flow after preview on the copied database. |
+| `playtrace inspect --db <copy> "battle.net launcher" --theme mono` | Pass | Exit `0`. Surfaced title-backed lineage from `userassist`, including evidence ids and reasoning. |
+| `playtrace sources --db <copy> "battle.net launcher" --theme mono` | Pass | Exit `0`. Rendered the provenance ledger with reasoning and conflict support. |
+| `playtrace export --db <copy> --format json --scope entity --output <entity.json>` | Pass | Exit `0`. Wrote the entity export with scope `entity`. |
+| `playtrace export --db <copy> --format json --scope lineage --output <lineage.json>` | Pass | Exit `0`. Wrote the lineage export with scope `lineage`; validation copy contained `40` exported entities. |
+| `playtrace export --db <copy> --format json --scope repair-preview --output <repair.json>` | Pass | Exit `0`. Wrote the repair preview export with scope `repair-preview`; the validation copy still reported `1` remaining duplicate group explicitly instead of hiding it. |
+
+Validation fixes discovered and corrected during the live pass:
+
+- Repair preview rendering was still crashing on unresolved output because `render_repair_preview()` referenced `theme.warn` instead of `theme.warning`.
+- Conflict rendering in `render_sources()` and `render_inspection()` had the same stale `theme.warn` reference and is now covered by dedicated render-path tests.
+
+Observed artifacts from the live reconstruction/lineage pass:
+
+- Export scopes written during validation:
+  - `entity.json` -> scope `entity`
+  - `lineage.json` -> scope `lineage`
+  - `repair.json` -> scope `repair-preview`
+- The copied validation database remained the only mutated database during `--yes` runs.
