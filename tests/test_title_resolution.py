@@ -288,6 +288,70 @@ def test_duplicate_candidates_keep_reconstructed_variants() -> None:
     assert candidates[0].primary_title == "ELDEN RING"
 
 
+def test_duplicate_candidates_keep_concatenated_variants() -> None:
+    left = ResolvedTitle(
+        title_id="title:eldenring",
+        title="eldenring",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher="Steam",
+        primary_exe_id="exe:1",
+    )
+    right = ResolvedTitle(
+        title_id="title:eldenring-deluxe",
+        title="eldenringdeluxe",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher="Steam",
+        primary_exe_id="exe:2",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([left, right])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title == "eldenring"
+    assert candidates[0].related_titles == ["eldenringdeluxe"]
+
+
+def test_duplicate_candidates_preserve_anchor_scoped_grouping() -> None:
+    anchor = ResolvedTitle(
+        title_id="title:elden-ring",
+        title="ELDEN RING",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher="Steam",
+        primary_exe_id="exe:1",
+    )
+    bridge = ResolvedTitle(
+        title_id="title:elden-ring-demo",
+        title="ELDEN RING DEMO",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher="Steam",
+        primary_exe_id="exe:2",
+    )
+    transitive = ResolvedTitle(
+        title_id="title:demo",
+        title="DEMO",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.LOW,
+        launcher="Steam",
+        primary_exe_id="exe:3",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([anchor, bridge, transitive])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title == "ELDEN RING"
+    assert candidates[0].related_titles == ["ELDEN RING DEMO"]
+    assert "DEMO" not in candidates[0].related_titles
+
+
 def test_duplicate_candidates_reduce_verification_fanout_for_unrelated_titles() -> None:
     names = [
         "f13a9c7e2b4d",

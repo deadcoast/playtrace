@@ -39,6 +39,7 @@ class _DuplicateFingerprint:
     title_id: str
     normalized_title: str
     informative_tokens: tuple[str, ...]
+    title_fragments: tuple[str, ...]
     length_band: int
     launcher_key: str | None
 
@@ -382,9 +383,23 @@ class TitleResolver:
             return []
 
         candidates: list[DuplicateCandidate] = []
-        for group_indexes in self._duplicate_groups(titles, set(verified_pairs)):
-            group = [titles[index] for index in group_indexes]
-            reasons = self._group_duplicate_reasons(group_indexes, verified_pairs)
+        seen: set[str] = set()
+        for index, title in enumerate(titles):
+            if title.title_id in seen:
+                continue
+            group = [title]
+            reasons: list[str] = []
+            for related_index in range(index + 1, len(titles)):
+                pair_reasons = verified_pairs.get((index, related_index))
+                if not pair_reasons:
+                    continue
+                related = titles[related_index]
+                group.append(related)
+                reasons.extend(pair_reasons)
+                seen.add(related.title_id)
+            if len(group) < 2:
+                continue
+            seen.add(title.title_id)
             primary = sorted(
                 group,
                 key=lambda item: (
@@ -400,7 +415,7 @@ class TitleResolver:
                     primary_title=primary.title,
                     related_title_ids=[title.title_id for title in related],
                     related_titles=[title.title for title in related],
-                    reasons=reasons,
+                    reasons=sorted(set(reasons)),
                 )
             )
 
@@ -413,6 +428,7 @@ class TitleResolver:
             title_id=title.title_id,
             normalized_title=normalized_title,
             informative_tokens=self._informative_duplicate_tokens(title.title),
+            title_fragments=self._duplicate_title_fragments(normalized_title),
             length_band=max(1, len(normalized_title) // 4) if normalized_title else 0,
             launcher_key=normalize_title(title.launcher) or None,
         )
@@ -433,6 +449,19 @@ class TitleResolver:
             return (normalized_title,)
         return ()
 
+    def _duplicate_title_fragments(self, normalized_title: str) -> tuple[str, ...]:
+        if len(normalized_title) < 4:
+            return ()
+        fragments: list[str] = []
+        for size in (5, 4):
+            if len(normalized_title) < size:
+                continue
+            for start in range(len(normalized_title) - size + 1):
+                fragment = normalized_title[start : start + size]
+                if fragment not in fragments:
+                    fragments.append(fragment)
+        return tuple(fragments)
+
     def _duplicate_candidate_pairs(
         self,
         titles: list[ResolvedTitle],
@@ -443,11 +472,15 @@ class TitleResolver:
         ]
         exact_buckets: dict[str, list[int]] = {}
         token_buckets: dict[str, list[int]] = {}
+        fragment_buckets: dict[str, list[int]] = {}
         for fingerprint in fingerprints:
             if fingerprint.normalized_title:
                 exact_buckets.setdefault(fingerprint.normalized_title, []).append(fingerprint.index)
             for token in fingerprint.informative_tokens:
                 token_buckets.setdefault(token, []).append(fingerprint.index)
+            if len(fingerprint.informative_tokens) <= 1:
+                for fragment in fingerprint.title_fragments:
+                    fragment_buckets.setdefault(fragment, []).append(fingerprint.index)
 
         pairs: set[tuple[int, int]] = set()
         for indexes in exact_buckets.values():
@@ -458,6 +491,8 @@ class TitleResolver:
                 exact_match=True,
             )
         for indexes in token_buckets.values():
+            self._add_duplicate_pairs(indexes, fingerprints, pairs)
+        for indexes in fragment_buckets.values():
             self._add_duplicate_pairs(indexes, fingerprints, pairs)
         return pairs
 
@@ -489,45 +524,6 @@ class TitleResolver:
                 if right_fingerprint.length_band - left_fingerprint.length_band > 2:
                     break
                 pairs.add((left_index, right_index))
-
-    def _duplicate_groups(
-        self,
-        titles: list[ResolvedTitle],
-        verified_pairs: set[tuple[int, int]],
-    ) -> list[list[int]]:
-        adjacency: dict[int, set[int]] = {}
-        for left_index, right_index in verified_pairs:
-            adjacency.setdefault(left_index, set()).add(right_index)
-            adjacency.setdefault(right_index, set()).add(left_index)
-
-        groups: list[list[int]] = []
-        seen: set[int] = set()
-        for index in range(len(titles)):
-            if index in seen or index not in adjacency:
-                continue
-            stack = [index]
-            component: list[int] = []
-            while stack:
-                current = stack.pop()
-                if current in seen:
-                    continue
-                seen.add(current)
-                component.append(current)
-                stack.extend(sorted(adjacency[current], reverse=True))
-            groups.append(sorted(component))
-        return groups
-
-    def _group_duplicate_reasons(
-        self,
-        group_indexes: list[int],
-        verified_pairs: dict[tuple[int, int], list[str]],
-    ) -> list[str]:
-        indexes = set(group_indexes)
-        reasons: set[str] = set()
-        for (left_index, right_index), pair_reasons in verified_pairs.items():
-            if left_index in indexes and right_index in indexes:
-                reasons.update(pair_reasons)
-        return sorted(reasons)
 
     def _duplicate_reasons(self, left: ResolvedTitle, right: ResolvedTitle) -> list[str]:
         anchor_reasons: list[str] = []
