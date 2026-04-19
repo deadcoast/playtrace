@@ -15,12 +15,16 @@ def register_doctor(app: typer.Typer) -> None:
         db: DatabaseOption = Path("playtrace.db"),
         config: ConfigOption = None,
         spec: SpecOption = None,
+        repair: bool = typer.Option(False, "--repair", help="Preview a reconstruction repair plan."),
+        yes: bool = typer.Option(False, "--yes", help="Apply repair mutations after a repair preview."),
         theme: ThemeOption = None,
     ) -> None:
         request = DoctorRequest(
             db_path=db,
             config_path=config,
             spec_name=spec,
+            repair=repair,
+            yes=yes,
             raw=RawDoctorInput(theme=theme if theme is not None else UNSET),
         )
         DoctorService().render(request)

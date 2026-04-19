@@ -12,6 +12,7 @@ from playtrace.normalize.identity import IdentityNormalizer
 from playtrace.render.console import build_console
 from playtrace.render.source_views import render_inspection
 from playtrace.render.theme import get_theme
+from playtrace.services.lineage import LineageService
 from playtrace.store.db import Database
 
 
@@ -54,6 +55,8 @@ class InspectionDetail:
     parent_chains: list[list[str]] = field(default_factory=list)
     mapping_source: str = "heuristic"
     confidence_reasoning: list[str] = field(default_factory=list)
+    alternate_titles: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
 
 
 class InspectorService:
@@ -62,14 +65,17 @@ class InspectorService:
         *,
         config_loader: ConfigLoader | None = None,
         resolver: ConfigResolver | None = None,
+        lineage_service: LineageService | None = None,
     ) -> None:
         self.config_loader = config_loader or ConfigLoader()
         self.resolver = resolver or ConfigResolver()
+        self.lineage_service = lineage_service or LineageService()
 
     def load(self, request: InspectRequest) -> InspectionDetail:
         db = Database(request.db_path)
         db.bootstrap()
         normalized_target = IdentityNormalizer().normalize_executable_target(request.target)
+        lineage_snapshot = self.lineage_service.load_entity(request.db_path, request.target)
 
         with db.connect() as conn:
             title_row = conn.execute(
@@ -96,8 +102,11 @@ class InspectorService:
 
             if title_row is None:
                 return InspectionDetail(
-                    title=request.target,
-                    runtime_confidence="unknown",
+                    title=lineage_snapshot.title,
+                    runtime_confidence=lineage_snapshot.runtime_confidence,
+                    confidence_reasoning=lineage_snapshot.confidence_reasons,
+                    alternate_titles=lineage_snapshot.alternate_titles,
+                    conflicts=lineage_snapshot.conflicts,
                 )
 
             session_rows = conn.execute(
@@ -195,16 +204,21 @@ class InspectorService:
             evidence_sources=evidence_sources,
             mapping_source=mapping_source,
         )
+        for reason in lineage_snapshot.confidence_reasons:
+            if reason not in confidence_reasoning:
+                confidence_reasoning.append(reason)
 
         return InspectionDetail(
-            title=title_row["title"],
-            runtime_confidence=title_row["runtime_confidence"],
+            title=lineage_snapshot.title,
+            runtime_confidence=lineage_snapshot.runtime_confidence,
             evidence_sources=evidence_sources,
             evidence_source_counts=dict(source_counter),
             evidence_ids=evidence_ids,
             parent_chains=parent_chains,
             mapping_source=mapping_source,
             confidence_reasoning=confidence_reasoning,
+            alternate_titles=lineage_snapshot.alternate_titles,
+            conflicts=lineage_snapshot.conflicts,
         )
 
     def render(self, request: InspectRequest) -> None:

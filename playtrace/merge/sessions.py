@@ -50,9 +50,14 @@ class SessionMerger:
 
         for starts in open_starts.values():
             for start in starts:
-                sessions.append(self._build_partial_session(start))
+                sessions.append(
+                    self._build_partial_session(
+                        start,
+                        note="Missing exit evidence for this activity window.",
+                    )
+                )
 
-        return sessions
+        return self._merge_adjacent_sessions(sessions)
 
     def _pair_key(self, record: EvidenceRecord) -> tuple[int | None, str | None, str]:
         pid = self._pid_value(record)
@@ -90,7 +95,7 @@ class SessionMerger:
             parent_chain=parent_chain,
         )
 
-    def _build_partial_session(self, start: EvidenceRecord) -> SessionRecord:
+    def _build_partial_session(self, start: EvidenceRecord, *, note: str | None = None) -> SessionRecord:
         parent_pid = start.value.get("parent_pid")
         parent_chain = [str(parent_pid)] if parent_pid is not None else []
         started_at = self._normalized_observed_at(start)
@@ -107,6 +112,7 @@ class SessionMerger:
             evidence_sources=[start.source.value],
             evidence_ids=[start.evidence_id],
             parent_chain=parent_chain,
+            notes=[note] if note else [],
         )
 
     def _session_id(self, record: EvidenceRecord) -> str:
@@ -144,6 +150,64 @@ class SessionMerger:
         if left_time is None or right_time is None:
             return False
         return abs(right_time - left_time) <= self.config.dedupe_window
+
+    def _merge_adjacent_sessions(self, sessions: list[SessionRecord]) -> list[SessionRecord]:
+        ordered = sorted(
+            sessions,
+            key=lambda session: (
+                session.started_at or datetime.min.replace(tzinfo=timezone.utc),
+                session.session_id,
+            ),
+        )
+        merged: list[SessionRecord] = []
+        for session in ordered:
+            if not merged:
+                merged.append(session)
+                continue
+            previous = merged[-1]
+            if not self._can_merge_sessions(previous, session):
+                merged.append(session)
+                continue
+            merged[-1] = self._merge_session_pair(previous, session)
+        return merged
+
+    def _can_merge_sessions(self, left: SessionRecord, right: SessionRecord) -> bool:
+        if left.confidence is not RuntimeConfidence.EXACT or right.confidence is not RuntimeConfidence.EXACT:
+            return False
+        if left.exe_id != right.exe_id:
+            return False
+        if left.user_sid != right.user_sid:
+            return False
+        if left.parent_chain != right.parent_chain:
+            return False
+        if left.ended_at is None or right.started_at is None:
+            return False
+        gap = right.started_at - left.ended_at
+        return timedelta(0) <= gap <= self.config.dedupe_window
+
+    def _merge_session_pair(self, left: SessionRecord, right: SessionRecord) -> SessionRecord:
+        started_at = left.started_at
+        ended_at = right.ended_at or left.ended_at
+        duration_seconds = None
+        if started_at and ended_at:
+            duration_seconds = max(int((ended_at - started_at).total_seconds()), 0)
+        return SessionRecord(
+            session_id=left.session_id,
+            title_id=left.title_id or right.title_id,
+            exe_id=left.exe_id,
+            user_sid=left.user_sid,
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_seconds=duration_seconds,
+            foreground_seconds=left.foreground_seconds + right.foreground_seconds,
+            bytes_in=left.bytes_in + right.bytes_in,
+            bytes_out=left.bytes_out + right.bytes_out,
+            confidence=RuntimeConfidence.EXACT,
+            evidence_sources=sorted(set(left.evidence_sources + right.evidence_sources)),
+            evidence_ids=left.evidence_ids + right.evidence_ids,
+            parent_chain=list(left.parent_chain),
+            notes=list(left.notes) + list(right.notes) + ["Merged adjacent activity windows."],
+        )
 
     def _string_value(self, record: EvidenceRecord, key: str) -> str | None:
         value = record.value.get(key)

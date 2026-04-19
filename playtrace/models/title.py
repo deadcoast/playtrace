@@ -31,6 +31,7 @@ class TitleAggregate:
     title_confidence: ConfidenceLevel
     launcher: str | None
     primary_exe_id: str | None = None
+    alternate_titles: list[str] = field(default_factory=list)
     runtime: RuntimeStats = field(default_factory=RuntimeStats)
     launches: LaunchStats = field(default_factory=LaunchStats)
     first_seen: datetime | None = None

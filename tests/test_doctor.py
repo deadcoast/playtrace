@@ -6,6 +6,7 @@ from pathlib import Path
 from playtrace.models.evidence import RawArtifact
 from playtrace.models.doctor import DoctorFinding, DoctorSnapshot
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
+from playtrace.models.repair import RepairCounts, RepairPreview
 from playtrace.parsers.bam import BamParser
 from playtrace.parsers.srum import SrumParser
 from playtrace.services.doctor import DoctorRequest, DoctorService
@@ -98,3 +99,73 @@ def test_doctor_snapshot_can_hold_environment_and_data_findings() -> None:
             summary="No sessions available",
         )
     ]
+
+
+def test_doctor_service_preview_repair_does_not_apply_without_yes(tmp_path: Path) -> None:
+    class StubRebuildService:
+        def __init__(self) -> None:
+            self.plan_calls = 0
+            self.apply_calls = 0
+
+        def plan(self, db_path: Path, settings=None):
+            self.plan_calls += 1
+            return RepairPreview(counts=RepairCounts())
+
+        def apply(self, db_path: Path, *, preview, confirmed: bool):
+            self.apply_calls += 1
+            return preview
+
+    rebuild_service = StubRebuildService()
+
+    DoctorService(
+        audit_service=StubAuditService(),
+        rebuild_service=rebuild_service,
+    ).render(
+        DoctorRequest(
+            db_path=tmp_path / "playtrace.db",
+            theme="mono",
+            repair=True,
+            yes=False,
+        )
+    )
+
+    assert rebuild_service.plan_calls == 1
+    assert rebuild_service.apply_calls == 0
+
+
+def test_doctor_service_preview_repair_applies_with_yes(tmp_path: Path) -> None:
+    class StubRebuildService:
+        def __init__(self) -> None:
+            self.plan_calls = 0
+            self.apply_calls = 0
+
+        def plan(self, db_path: Path, settings=None):
+            self.plan_calls += 1
+            return RepairPreview(counts=RepairCounts())
+
+        def apply(self, db_path: Path, *, preview, confirmed: bool, settings=None):
+            assert confirmed is True
+            self.apply_calls += 1
+            return preview
+
+    rebuild_service = StubRebuildService()
+
+    DoctorService(
+        audit_service=StubAuditService(),
+        rebuild_service=rebuild_service,
+    ).render(
+        DoctorRequest(
+            db_path=tmp_path / "playtrace.db",
+            theme="mono",
+            repair=True,
+            yes=True,
+        )
+    )
+
+    assert rebuild_service.plan_calls == 1
+    assert rebuild_service.apply_calls == 1
+
+
+class StubAuditService:
+    def load(self, request: object) -> DoctorSnapshot:
+        return DoctorSnapshot(environment_findings=[], data_findings=[])

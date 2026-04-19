@@ -98,6 +98,7 @@ class MapConfig(CommandConfig):
 @dataclass(slots=True)
 class ExportConfig(CommandConfig):
     format: str | None = "json"
+    scope: str | None = "entity"
 
 
 @dataclass(slots=True)

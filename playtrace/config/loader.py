@@ -207,6 +207,7 @@ class ConfigLoader:
             theme=table.get("theme"),
             density=table.get("density"),
             format=table.get("format", "json"),
+            scope=table.get("scope", "entity"),
         )
 
     def _table(self, value: Any) -> dict[str, Any]:

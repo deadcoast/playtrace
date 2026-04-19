@@ -44,6 +44,7 @@ auto = false
 
 [export]
 format = "json"
+scope = "entity"
 
 [profiles.ready.report]
 limit = 10

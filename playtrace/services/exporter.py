@@ -8,6 +8,8 @@ from pathlib import Path
 from playtrace.config.loader import ConfigLoader
 from playtrace.config.resolver import ConfigResolver
 from playtrace.config.runtime import RawExportInput, UNSET
+from playtrace.services.lineage import LineageService
+from playtrace.services.rebuild import RebuildService
 from playtrace.store.db import Database
 from playtrace.utils.clock import Clock
 
@@ -29,12 +31,16 @@ class ExportRequest:
         spec_name: str | None = None,
         raw: RawExportInput | None = None,
         format: str | None = None,
+        scope: str | None = None,
     ) -> None:
         self.db_path = db_path
         self.output_path = output_path
         self.config_path = config_path
         self.spec_name = spec_name
-        self.raw = raw or RawExportInput(format=format if format is not None else UNSET)
+        self.raw = raw or RawExportInput(
+            format=format if format is not None else UNSET,
+            scope=scope if scope is not None else UNSET,
+        )
 
 
 class ExporterService:
@@ -43,9 +49,13 @@ class ExporterService:
         *,
         config_loader: ConfigLoader | None = None,
         resolver: ConfigResolver | None = None,
+        lineage_service: LineageService | None = None,
+        rebuild_service: RebuildService | None = None,
     ) -> None:
         self.config_loader = config_loader or ConfigLoader()
         self.resolver = resolver or ConfigResolver()
+        self.lineage_service = lineage_service or LineageService()
+        self.rebuild_service = rebuild_service or RebuildService()
 
     def run(self, request: ExportRequest) -> None:
         db = Database(request.db_path)
@@ -53,14 +63,21 @@ class ExporterService:
         snapshot = db.load_snapshot(limit=250)
         resolved = self._resolve(request)
         format_name = (resolved.format or "json").lower()
+        scope_name = (resolved.scope or "entity").lower()
 
         if format_name == "json":
-            payload = self._build_export_payload(
+            payload = self._build_json_payload(
+                db=db,
                 snapshot=snapshot,
-                sessions=db.load_sessions(title=None, days=3650, limit=1000),
+                scope_name=scope_name,
+                request=request,
+                resolved=resolved,
             )
             request.output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             return
+
+        if scope_name != "entity":
+            raise ValueError(f"Scope {scope_name} requires --format json.")
 
         if format_name == "csv":
             self._write_csv(request.output_path, snapshot.top_titles)
@@ -80,8 +97,29 @@ class ExporterService:
             spec_name=request.spec_name,
         )
 
-    def _build_export_payload(self, *, snapshot, sessions) -> dict[str, object]:
+    def _build_json_payload(
+        self,
+        *,
+        db: Database,
+        snapshot,
+        scope_name: str,
+        request: ExportRequest,
+        resolved,
+    ) -> dict[str, object]:
+        if scope_name == "entity":
+            return self._build_entity_payload(
+                snapshot=snapshot,
+                sessions=db.load_sessions(title=None, days=3650, limit=1000),
+            )
+        if scope_name == "lineage":
+            return self._build_lineage_payload(db=db, snapshot=snapshot, request=request)
+        if scope_name == "repair-preview":
+            return self._build_repair_preview_payload(snapshot=snapshot, request=request, resolved=resolved)
+        raise ValueError(f"Unsupported export scope: {scope_name}")
+
+    def _build_entity_payload(self, *, snapshot, sessions) -> dict[str, object]:
         return {
+            "scope": "entity",
             "generated_at": Clock.format_iso8601(snapshot.generated_at),
             "host_name": snapshot.host_name,
             "coverage": {
@@ -119,6 +157,84 @@ class ExporterService:
                 for title, session in sessions
             ],
             "warnings": snapshot.warnings,
+        }
+
+    def _build_lineage_payload(self, *, db: Database, snapshot, request: ExportRequest) -> dict[str, object]:
+        titles = db.load_titles(
+            sort_by="runtime",
+            classification=None,
+            launcher=None,
+            limit=10_000,
+        )
+        duplicates = db.load_duplicate_candidates()
+        entities = self.lineage_service.load_entities(
+            request.db_path,
+            [title.title for title in titles],
+        )
+        return {
+            "scope": "lineage",
+            "generated_at": Clock.format_iso8601(snapshot.generated_at),
+            "host_name": snapshot.host_name,
+            "entities": [
+                self._serialize_entity_lineage(entity)
+                for entity in entities
+            ],
+            "duplicates": [
+                {
+                    "primary_title_id": candidate.primary_title_id,
+                    "primary_title": candidate.primary_title,
+                    "related_title_ids": candidate.related_title_ids,
+                    "related_titles": candidate.related_titles,
+                    "reasons": candidate.reasons,
+                }
+                for candidate in duplicates
+            ],
+            "warnings": snapshot.warnings,
+        }
+
+    def _build_repair_preview_payload(self, *, snapshot, request: ExportRequest, resolved) -> dict[str, object]:
+        preview = self.rebuild_service.plan(
+            request.db_path,
+            settings=resolved.reconstruction,
+        )
+        return {
+            "scope": "repair-preview",
+            "generated_at": Clock.format_iso8601(snapshot.generated_at),
+            "host_name": snapshot.host_name,
+            "repair": {
+                "counts": {
+                    "merged_titles": preview.counts.merged_titles,
+                    "changed_titles": preview.counts.changed_titles,
+                    "changed_sessions": preview.counts.changed_sessions,
+                    "remaining_duplicate_groups": preview.counts.remaining_duplicate_groups,
+                },
+                "title_changes": preview.title_changes,
+                "session_changes": preview.session_changes,
+                "unresolved": preview.unresolved,
+            },
+            "warnings": snapshot.warnings,
+        }
+
+    def _serialize_entity_lineage(self, snapshot) -> dict[str, object]:
+        return {
+            "title": snapshot.title,
+            "runtime_confidence": snapshot.runtime_confidence,
+            "confidence_reasons": snapshot.confidence_reasons,
+            "alternate_titles": snapshot.alternate_titles,
+            "conflicts": snapshot.conflicts,
+            "contributions": [
+                {
+                    "source": contribution.source,
+                    "evidence_type": contribution.evidence_type,
+                    "strength": contribution.strength,
+                    "observed_at": contribution.observed_at,
+                    "evidence_id": contribution.evidence_id,
+                    "raw_ref": contribution.raw_ref,
+                    "title_hint": contribution.title_hint,
+                    "reasoning": contribution.reasoning,
+                }
+                for contribution in snapshot.contributions
+            ],
         }
 
     def _write_csv(self, output_path: Path, titles) -> None:

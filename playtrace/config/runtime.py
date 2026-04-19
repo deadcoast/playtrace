@@ -97,6 +97,7 @@ class RawExportInput:
     theme: str | object = UNSET
     density: str | object = UNSET
     format: str | object = UNSET
+    scope: str | object = UNSET
 
 
 @dataclass(slots=True)
@@ -160,6 +161,7 @@ class ResolvedMapSettings(ResolvedSettingsBase):
 @dataclass(slots=True)
 class ResolvedExportSettings(ResolvedSettingsBase):
     format: str | None = None
+    scope: str | None = None
 
 
 def is_unset(value: Any) -> bool:

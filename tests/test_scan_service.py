@@ -5,6 +5,7 @@ from pathlib import Path
 
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
+from playtrace.models.repair import RepairCounts, RepairPreview
 from playtrace.services.scanner import ScanRequest, ScannerService
 
 
@@ -37,6 +38,58 @@ def test_scan_command_never_finishes_without_rendering_summary(tmp_path: Path, c
     assert "playtrace SCAN" in output
     assert "Summary" in output
     assert "Source Status" in output
+
+
+def test_scan_service_preview_rebuild_does_not_apply_without_yes(tmp_path: Path) -> None:
+    rebuild_service = _StubRebuildService()
+
+    ScannerService(
+        collectors=[_SuccessfulCollector()],
+        parsers=[_SuccessfulParser()],
+        rebuild_service=rebuild_service,
+    ).render(
+        ScanRequest(
+            db_path=tmp_path / "playtrace.db",
+            config_path=None,
+            raw=None,
+            rebuild=True,
+            yes=False,
+        )
+    )
+
+    assert rebuild_service.plan_calls == 1
+    assert rebuild_service.apply_calls == 0
+
+
+def test_scan_service_preview_rebuild_renders_unresolved_panel(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    rebuild_service = _StubRebuildService(
+        preview=RepairPreview(
+            counts=RepairCounts(remaining_duplicate_groups=1),
+            unresolved=["1 suspected duplicate title group would remain after repair."],
+        )
+    )
+
+    ScannerService(
+        collectors=[_SuccessfulCollector()],
+        parsers=[_SuccessfulParser()],
+        rebuild_service=rebuild_service,
+    ).render(
+        ScanRequest(
+            db_path=tmp_path / "playtrace.db",
+            config_path=None,
+            raw=None,
+            rebuild=True,
+            yes=False,
+        )
+    )
+
+    output = capsys.readouterr().out
+
+    assert "Repair Preview" in output
+    assert "Unresolved" in output
 
 
 @dataclass(slots=True)
@@ -95,3 +148,18 @@ class _PassthroughParser:
 
     def parse(self, artifacts) -> list[EvidenceRecord]:
         return []
+
+
+class _StubRebuildService:
+    def __init__(self, preview: RepairPreview | None = None) -> None:
+        self.plan_calls = 0
+        self.apply_calls = 0
+        self.preview = preview or RepairPreview(counts=RepairCounts())
+
+    def plan(self, db_path: Path, settings=None):
+        self.plan_calls += 1
+        return self.preview
+
+    def apply(self, db_path: Path, *, preview, confirmed: bool):
+        self.apply_calls += 1
+        return preview

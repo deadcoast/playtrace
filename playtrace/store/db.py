@@ -363,6 +363,15 @@ class Database:
         self,
         settings: ReconstructionSettings | None = None,
     ) -> None:
+        executables, sessions, titles = self.build_reconstruction_state(settings=settings)
+        self.replace_executables(executables)
+        self.replace_sessions(sessions)
+        self.replace_titles(titles)
+
+    def build_reconstruction_state(
+        self,
+        settings: ReconstructionSettings | None = None,
+    ) -> tuple[list[ExecutableIdentity], list[SessionRecord], list[TitleAggregate]]:
         from playtrace.merge.sessions import SessionMerger
         from playtrace.merge.sessions import SessionMergeConfig
         from playtrace.merge.titles import TitleAggregator
@@ -426,9 +435,7 @@ class Database:
         for session in sessions:
             session.title_id = title_ids_by_executable.get(session.exe_id)
 
-        self.replace_executables(list(executable_map.values()))
-        self.replace_sessions(sessions)
-        self.replace_titles(titles)
+        return list(executable_map.values()), sessions, titles
 
     def seed_demo_data(self) -> None:
         with self.connect() as conn:
@@ -558,7 +565,7 @@ class Database:
             launcher=None,
             limit=10_000,
         )
-        return len(self._duplicate_groups(titles, threshold=0.75))
+        return len(self.duplicate_groups(titles, threshold=0.75))
 
     def count_unmapped_executables(self) -> int:
         with self.connect() as conn:
@@ -617,7 +624,7 @@ class Database:
             limit=10_000,
         )
         candidates: list[DuplicateCandidate] = []
-        for group in self._duplicate_groups(titles, threshold=0.75):
+        for group in self.duplicate_groups(titles, threshold=0.75):
             primary = self._select_duplicate_primary(group)
             related = [title for title in group if title.title_id != primary.title_id]
             candidates.append(
@@ -630,6 +637,14 @@ class Database:
                 )
             )
         return candidates
+
+    def duplicate_groups(
+        self,
+        titles: list[TitleAggregate],
+        *,
+        threshold: float,
+    ) -> list[list[TitleAggregate]]:
+        return self._duplicate_groups(titles, threshold=threshold)
 
     def load_executable_targets_for_titles(self, title_ids: list[str]) -> dict[str, list[str]]:
         if not title_ids:
@@ -654,6 +669,133 @@ class Database:
         for row in rows:
             targets.setdefault(row["title_id"], []).append(row["mapping_target"])
         return targets
+
+    def find_lineage_title(
+        self,
+        target: str,
+        normalized_target: str | None,
+        *,
+        conn: sqlite3.Connection | None = None,
+    ) -> sqlite3.Row | None:
+        if conn is None:
+            with self.connect() as local_conn:
+                return self.find_lineage_title(target, normalized_target, conn=local_conn)
+
+        return conn.execute(
+            """
+            SELECT DISTINCT titles.*
+            FROM titles
+            LEFT JOIN title_executables
+              ON title_executables.title_id = titles.title_id
+            LEFT JOIN sessions
+              ON sessions.title_id = titles.title_id
+            WHERE lower(titles.title) = lower(?)
+               OR titles.title_id = ?
+               OR title_executables.exe_id = ?
+               OR sessions.exe_id = ?
+            ORDER BY
+              CASE COALESCE(titles.title_confidence, 'unknown')
+                WHEN 'high' THEN 0
+                WHEN 'medium' THEN 1
+                WHEN 'low' THEN 2
+                ELSE 3
+              END ASC,
+              (COALESCE(titles.confirmed_seconds, 0) + COALESCE(titles.estimated_seconds, 0)) DESC,
+              lower(titles.title) ASC,
+              titles.title_id ASC
+            LIMIT 1
+            """,
+            (
+                target,
+                target,
+                normalized_target or target,
+                normalized_target or target,
+            ),
+        ).fetchone()
+
+    def load_lineage_executables(
+        self,
+        *,
+        title_id: str | None = None,
+        normalized_target: str | None = None,
+        conn: sqlite3.Connection | None = None,
+    ) -> list[sqlite3.Row]:
+        if conn is None:
+            with self.connect() as local_conn:
+                return self.load_lineage_executables(
+                    title_id=title_id,
+                    normalized_target=normalized_target,
+                    conn=local_conn,
+                )
+
+        clauses: list[str] = []
+        params: list[object] = []
+
+        if title_id:
+            clauses.append("title_executables.title_id = ?")
+            params.append(title_id)
+        if normalized_target:
+            clauses.append("executables.exe_id = ?")
+            params.append(normalized_target)
+
+        if not clauses:
+            return []
+
+        return conn.execute(
+            f"""
+            SELECT DISTINCT executables.*
+            FROM executables
+            LEFT JOIN title_executables
+              ON title_executables.exe_id = executables.exe_id
+            WHERE {' OR '.join(clauses)}
+            ORDER BY executables.exe_id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+
+    def load_lineage_evidence_rows(
+        self,
+        *,
+        search_terms: list[str],
+        conn: sqlite3.Connection | None = None,
+    ) -> list[sqlite3.Row]:
+        if not search_terms:
+            return []
+        if conn is None:
+            with self.connect() as local_conn:
+                return self.load_lineage_evidence_rows(search_terms=search_terms, conn=local_conn)
+
+        clauses: list[str] = []
+        params: list[object] = []
+        for term in search_terms:
+            like_term = f"%{term}%"
+            clauses.append(
+                """
+                lower(COALESCE(artifacts.raw_ref, '')) LIKE ?
+                OR lower(COALESCE(artifacts.payload, '')) LIKE ?
+                OR lower(COALESCE(evidence_links.value, '')) LIKE ?
+                """
+            )
+            params.extend([like_term, like_term, like_term])
+
+        query = f"""
+            SELECT
+                artifacts.source AS artifact_source,
+                artifacts.payload AS artifact_payload,
+                artifacts.raw_ref AS raw_ref,
+                evidence_links.evidence_id AS evidence_id,
+                evidence_links.source AS evidence_source,
+                evidence_links.evidence_type AS evidence_type,
+                evidence_links.observed_at AS observed_at,
+                evidence_links.strength AS strength,
+                evidence_links.value AS evidence_value
+            FROM artifacts
+            LEFT JOIN evidence_links
+              ON evidence_links.artifact_id = artifacts.artifact_id
+            WHERE {' OR '.join(f'({clause.strip()})' for clause in clauses)}
+            ORDER BY COALESCE(evidence_links.observed_at, artifacts.observed_at) DESC, artifacts.artifact_id DESC
+        """
+        return conn.execute(query, tuple(params)).fetchall()
 
     def load_sessions(
         self,

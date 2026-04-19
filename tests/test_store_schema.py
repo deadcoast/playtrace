@@ -490,7 +490,7 @@ def test_rebuild_uses_configured_duplicate_auto_merge(tmp_path: Path) -> None:
     db.bootstrap()
     _seed_duplicate_evidence(
         db,
-        product_names=["ELDEN RING", "eldenring"],
+        product_names=["ELDENRING DX12", "ELDENRING DX13"],
     )
 
     db.rebuild_from_artifacts_and_mappings()
@@ -529,6 +529,18 @@ def test_rebuild_uses_configured_duplicate_similarity_threshold(tmp_path: Path) 
 
     assert strict_duplicate_groups == 1
     assert db.count_duplicate_title_groups() == 0
+
+
+def test_database_duplicate_groups_is_public_and_honors_threshold(tmp_path: Path) -> None:
+    db = Database(tmp_path / "playtrace.db")
+    db.bootstrap()
+    titles = [
+        _title("title:eldenring", "ELDENRING"),
+        _title("title:eldenringdx12", "eldenringdx12"),
+    ]
+
+    assert db.duplicate_groups(titles, threshold=0.95) == []
+    assert len(db.duplicate_groups(titles, threshold=0.75)) == 1
 
 
 def test_rebuild_uses_configured_minimum_evidence_confidence(tmp_path: Path) -> None:

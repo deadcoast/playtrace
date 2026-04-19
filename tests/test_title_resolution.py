@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from playtrace.classify.heuristics import choose_primary_executable
 from playtrace.classify.resolver import ResolvedTitle, TitleResolver
 from playtrace.merge.titles import TitleAggregator
 from playtrace.models.evidence import EvidenceRecord
@@ -10,6 +11,11 @@ from playtrace.models.executable import ExecutableIdentity
 from playtrace.models.mapping import UserMapping
 from playtrace.models.session import SessionRecord
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
+from tests.support.reconstruction_cases import (
+    duplicate_title_case,
+    duplicate_title_case_with_remaining_ambiguity,
+    weak_title_case,
+)
 
 
 def test_launcher_child_rule_prefers_longest_lived_game_process() -> None:
@@ -155,25 +161,11 @@ def test_title_aggregator_emits_multiple_titles_for_independent_games() -> None:
 
 
 def test_title_resolution_emits_duplicate_candidates_for_similar_executables() -> None:
-    primary = _exe(
-        exe_id="path:d:\\games\\elden ring\\eldenring.exe",
-        path=r"D:\Games\ELDEN RING\eldenring.exe",
-        filename="eldenring.exe",
-        product_name="ELDEN RING",
-    )
-    related = _exe(
-        exe_id="path:d:\\games\\eldenring\\eldenring_dx12.exe",
-        path=r"D:\Games\eldenring\eldenring_dx12.exe",
-        filename="eldenring_dx12.exe",
-        product_name="eldenring",
-    )
+    case = duplicate_title_case_with_remaining_ambiguity()
 
     result = TitleResolver().resolve(
-        [primary, related],
-        [
-            _session(primary.exe_id, 3600, []),
-            _session(related.exe_id, 1200, []),
-        ],
+        case.executables,
+        case.sessions,
         mappings=[],
     )
 
@@ -237,6 +229,27 @@ def test_duplicate_candidates_prefer_higher_confidence_titles() -> None:
     assert candidates[0].primary_title == "ELDEN RING"
 
 
+def test_choose_primary_executable_returns_candidate_when_all_scores_are_negative() -> None:
+    launcher = _exe(
+        exe_id="path:c:\\program files (x86)\\steam\\steam.exe",
+        path=r"C:\Program Files (x86)\Steam\steam.exe",
+        filename="steam.exe",
+        product_name="Steam",
+    )
+    helper = _exe(
+        exe_id="path:c:\\games\\elden ring\\support\\helper.exe",
+        path=r"C:\Games\ELDEN RING\Support\helper.exe",
+        filename="helper.exe",
+        product_name="Helper",
+    )
+    launcher.classification = Classification.LAUNCHER
+    helper.classification = Classification.HELPER
+
+    primary = choose_primary_executable([launcher, helper], [])
+
+    assert primary is launcher
+
+
 def test_title_aggregator_uses_non_session_evidence_for_launches_and_sources() -> None:
     executable = _exe(
         exe_id="path:c:\\program files (x86)\\battle.net\\battle.net launcher.exe",
@@ -276,6 +289,33 @@ def test_title_aggregator_uses_non_session_evidence_for_launches_and_sources() -
     assert title.evidence_sources == ["userassist"]
     assert title.first_seen == datetime(2026, 4, 16, 8, 40, 52, 798000, tzinfo=timezone.utc)
     assert title.last_seen == datetime(2026, 4, 16, 8, 40, 52, 798000, tzinfo=timezone.utc)
+
+
+def test_title_resolver_prefers_evidence_backed_game_binary_over_launcher_labels() -> None:
+    case = duplicate_title_case()
+
+    result = TitleResolver().resolve(case.executables, case.sessions, mappings=[])
+
+    assert [title.title for title in result.titles] == ["ELDEN RING"]
+    assert result.duplicate_candidates == []
+
+
+def test_title_resolver_preserves_ambiguity_when_evidence_is_too_weak() -> None:
+    case = weak_title_case()
+
+    result = TitleResolver().resolve(case.executables, case.sessions, mappings=[])
+
+    assert result.titles[0].title_confidence is ConfidenceLevel.UNKNOWN
+    assert "ambiguous" in " ".join(getattr(result.titles[0], "notes", [])).lower()
+
+
+def test_duplicate_candidates_include_lineage_reasoning() -> None:
+    case = duplicate_title_case_with_remaining_ambiguity()
+
+    result = TitleResolver().resolve(case.executables, case.sessions, mappings=[])
+
+    assert result.duplicate_candidates[0].reasons
+    assert "metadata" in " ".join(result.duplicate_candidates[0].reasons).lower()
 
 
 def _exe(
