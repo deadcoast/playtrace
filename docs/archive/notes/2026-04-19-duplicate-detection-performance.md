@@ -2,7 +2,7 @@
 
 Date: `2026-04-19`
 
-Status: deferred performance follow-up
+Status: completed
 
 Related code:
 
@@ -60,3 +60,11 @@ Candidate directions:
 - duplicate reasoning remains equivalent or better for existing reconstruction tests
 - large-title-set behavior is measurably better than the current implementation
 - no documented reconstruction or lineage behavior is removed or weakened
+
+## Resolution
+
+Completed on `2026-04-19`.
+
+- duplicate candidate generation now uses resolver-local blocking plus verification instead of a full forward pairwise scan
+- shared launcher ancestry remains part of surfaced duplicate reasoning, but only as supporting evidence after a title-similarity anchor exists
+- existing `DuplicateCandidate` output contracts were preserved for downstream report, export, and rebuild consumers
