@@ -18,6 +18,16 @@ from tests.support.reconstruction_cases import (
 )
 
 
+class CountingTitleResolver(TitleResolver):
+    def __init__(self) -> None:
+        super().__init__()
+        self.duplicate_reason_calls = 0
+
+    def _duplicate_reasons(self, left: ResolvedTitle, right: ResolvedTitle) -> list[str]:
+        self.duplicate_reason_calls += 1
+        return super()._duplicate_reasons(left, right)
+
+
 def test_launcher_child_rule_prefers_longest_lived_game_process() -> None:
     launcher = _exe(
         exe_id="path:c:\\program files (x86)\\steam\\steam.exe",
@@ -227,6 +237,118 @@ def test_duplicate_candidates_prefer_higher_confidence_titles() -> None:
     assert len(candidates) == 1
     assert candidates[0].primary_title_id == "title:elden-ring"
     assert candidates[0].primary_title == "ELDEN RING"
+
+
+def test_duplicate_candidates_require_more_than_shared_launcher() -> None:
+    left = ResolvedTitle(
+        title_id="title:alpha",
+        title="Alpha Protocol",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher="Steam",
+        primary_exe_id="exe:alpha",
+    )
+    right = ResolvedTitle(
+        title_id="title:beta",
+        title="Balatro",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher="Steam",
+        primary_exe_id="exe:beta",
+    )
+
+    assert TitleResolver()._duplicate_candidates([left, right]) == []
+
+
+def test_duplicate_candidates_keep_reconstructed_variants() -> None:
+    left = ResolvedTitle(
+        title_id="title:elden-ring",
+        title="ELDEN RING",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher="Steam",
+        primary_exe_id="exe:1",
+    )
+    right = ResolvedTitle(
+        title_id="title:elden-ring-deluxe",
+        title="Elden Ring Deluxe",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher="Steam",
+        primary_exe_id="exe:2",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([left, right])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title == "ELDEN RING"
+
+
+def test_duplicate_candidates_reduce_verification_fanout_for_unrelated_titles() -> None:
+    names = [
+        "f13a9c7e2b4d",
+        "8d24f6a1c9be",
+        "b7e341c9d2af",
+        "4ac9e1d7b28f",
+        "c2f8a4d91e6b",
+        "91be4c2fa7d3",
+        "d6a19f3c8e24",
+        "2eb7c41d9af6",
+        "af42d7e19c6b",
+        "73c9ab2e4df1",
+        "e4d1b8c72af9",
+        "1fa7d34ce9b2",
+        "9cb2e71af4d8",
+        "5de8a2c91bf4",
+        "a8f3d1b72ce4",
+        "3bd7e92ac1f4",
+        "ce19a4f27db8",
+        "6fa2c8d14be9",
+        "b14e9c2af73d",
+        "27dc4a8fe1b9",
+        "da81f2c4be79",
+        "49be2d7ac1f8",
+        "f2c74a19de8b",
+        "7ab1e4d9c2f6",
+        "c84d1f2ab7e9",
+        "1de7c94ab2f8",
+        "e92ab4d71cf8",
+        "2cf8d1a94be7",
+        "bd4a7e1cf298",
+        "84af2c1de9b7",
+        "f7d2b94ac1e8",
+        "19c4e7af2db8",
+        "a2d8f1c7be49",
+        "68be1d4ac9f2",
+        "d94c2ab7e1f8",
+        "3fe1a9c4bd72",
+        "b29d7f1ace48",
+        "4d8ac2f1be79",
+        "c71e4ab9d2f8",
+        "8af1d4c2be97",
+    ]
+    titles = [
+        ResolvedTitle(
+            title_id=f"title:{index}",
+            title=name,
+            classification=Classification.GAME,
+            classification_confidence=ConfidenceLevel.HIGH,
+            title_confidence=ConfidenceLevel.HIGH,
+            launcher=None,
+            primary_exe_id=f"exe:{index}",
+        )
+        for index, name in enumerate(names)
+    ]
+    resolver = CountingTitleResolver()
+
+    candidates = resolver._duplicate_candidates(titles)
+
+    assert candidates == []
+    assert resolver.duplicate_reason_calls < 100
 
 
 def test_choose_primary_executable_returns_candidate_when_all_scores_are_negative() -> None:
