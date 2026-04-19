@@ -42,6 +42,17 @@ def test_path_normalizer_expands_environment_variables(
     )
 
 
+def test_path_normalizer_expands_environment_variables_case_insensitively(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pathing_module.os, "environ", {"ProgramFiles": r"C:\Program Files"})
+
+    assert (
+        PathNormalizer().normalize(r"%PROGRAMFILES%\Steam\Steam.exe")
+        == r"c:\program files\steam\steam.exe"
+    )
+
+
 def test_path_normalizer_resolves_relative_paths_to_absolute(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

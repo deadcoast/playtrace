@@ -49,7 +49,16 @@ class PathNormalizer:
 
     def _expand_variable(self, match: re.Match[str]) -> str:
         variable_name = match.group(1)
-        return os.environ.get(variable_name, match.group(0))
+        direct = os.environ.get(variable_name)
+        if direct is not None:
+            return direct
+
+        target = variable_name.casefold()
+        for candidate_name, candidate_value in os.environ.items():
+            if candidate_name.casefold() == target:
+                return candidate_value
+
+        return match.group(0)
 
     def _windows_cwd(self) -> str | None:
         current = str(PureWindowsPath(os.getcwd()))
