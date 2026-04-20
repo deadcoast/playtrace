@@ -29,9 +29,22 @@ class PathNormalizer:
     def _expand_variables(self, path: str) -> str:
         expanded = os.path.expandvars(path)
         return self._WINDOWS_ENV_VAR_PATTERN.sub(
-            lambda match: os.environ.get(match.group(1), match.group(0)),
+            self._expand_variable,
             expanded,
         )
+
+    def _expand_variable(self, match: re.Match[str]) -> str:
+        variable_name = match.group(1)
+        direct = os.environ.get(variable_name)
+        if direct is not None:
+            return direct
+
+        target = variable_name.casefold()
+        for candidate_name, candidate_value in os.environ.copy().items():
+            if candidate_name.casefold() == target:
+                return candidate_value
+
+        return match.group(0)
 
     def _to_absolute(self, path: str) -> str:
         if (

@@ -7,15 +7,15 @@ This document specifies requirements for implementing nine incomplete modules in
 ## Glossary
 
 - **Normalizer**: Component that transforms raw evidence into canonical forms
-- **Metadata_Extractor**: Component that extracts version info and file properties from Windows executables
-- **Path_Normalizer**: Component that converts Windows paths to canonical lowercase forms
-- **Config_Loader**: Component that loads and validates configuration from TOML files
-- **Config_Model**: Dataclass representing validated configuration structure
+- **MetadataExtractor**: Component that extracts version info and file properties from Windows executables
+- **PathNormalizer**: Component that converts Windows paths to canonical lowercase forms
+- **ConfigLoader**: Component that loads and validates configuration from TOML files
+- **ConfigModel**: Dataclass representing validated configuration structure
 - **Migration_Engine**: Component that applies schema version upgrades to SQLite databases
 - **Repository**: Component that encapsulates database queries for a specific entity type
 - **Clock**: Component that provides timezone-aware datetime operations
 - **Hasher**: Component that computes cryptographic hashes for files and strings
-- **Platform_Detector**: Component that identifies Windows version and system paths
+- **PlatformDetector**: Component that identifies Windows version and system paths
 - **Evidence_Record**: Typed record containing parsed artifact data with source and timestamp
 - **Executable_Identity**: Normalized representation of a Windows executable with metadata
 - **Database**: SQLite connection manager with schema bootstrap and CRUD operations
@@ -28,11 +28,11 @@ This document specifies requirements for implementing nine incomplete modules in
 
 #### Acceptance Criteria
 
-1. WHEN a valid Windows PE file path is provided, THE Metadata_Extractor SHALL extract version info fields (ProductName, OriginalFilename, FileDescription, CompanyName)
-2. WHEN a valid Windows PE file path is provided, THE Metadata_Extractor SHALL extract digital signature information (signer name)
-3. WHEN an invalid or non-PE file path is provided, THE Metadata_Extractor SHALL return None for all metadata fields without raising exceptions
-4. WHEN a PE file lacks version info resources, THE Metadata_Extractor SHALL return None for missing fields
-5. THE Metadata_Extractor SHALL normalize extracted strings by stripping whitespace and returning None for empty values
+1. WHEN a valid Windows PE file path is provided, THE MetadataExtractor SHALL extract version info fields (ProductName, OriginalFilename, FileDescription, CompanyName)
+2. WHEN a valid Windows PE file path is provided, THE MetadataExtractor SHALL extract digital signature information (signer name)
+3. WHEN an invalid or non-PE file path is provided, THE MetadataExtractor SHALL return None for all metadata fields without raising exceptions
+4. WHEN a PE file lacks version info resources, THE MetadataExtractor SHALL return None for missing fields
+5. THE MetadataExtractor SHALL normalize extracted strings by stripping whitespace and returning None for empty values
 6. FOR ALL valid PE files, extracting metadata twice SHALL produce identical results (idempotence)
 
 ### Requirement 2: Normalize Windows Paths to Canonical Form
@@ -41,12 +41,12 @@ This document specifies requirements for implementing nine incomplete modules in
 
 #### Acceptance Criteria
 
-1. WHEN a Windows path with mixed case is provided, THE Path_Normalizer SHALL convert it to lowercase
-2. WHEN a Windows path contains forward slashes, THE Path_Normalizer SHALL convert them to backslashes
-3. WHEN a Windows path is wrapped in quotes, THE Path_Normalizer SHALL strip the quotes
-4. WHEN a Windows path contains environment variables like %ProgramFiles%, THE Path_Normalizer SHALL expand them to absolute paths
-5. WHEN a relative Windows path is provided, THE Path_Normalizer SHALL resolve it to an absolute path
-6. WHEN None or empty string is provided, THE Path_Normalizer SHALL return None
+1. WHEN a Windows path with mixed case is provided, THE PathNormalizer SHALL convert it to lowercase
+2. WHEN a Windows path contains forward slashes, THE PathNormalizer SHALL convert them to backslashes
+3. WHEN a Windows path is wrapped in quotes, THE PathNormalizer SHALL strip the quotes
+4. WHEN a Windows path contains environment variables like %ProgramFiles%, THE PathNormalizer SHALL expand them to absolute paths
+5. WHEN a relative Windows path is provided, THE PathNormalizer SHALL resolve it to an absolute path
+6. WHEN None or empty string is provided, THE PathNormalizer SHALL return None
 7. FOR ALL valid Windows paths, normalizing then normalizing again SHALL produce the same result (idempotence)
 
 ### Requirement 3: Load Configuration from TOML Files
@@ -55,13 +55,13 @@ This document specifies requirements for implementing nine incomplete modules in
 
 #### Acceptance Criteria
 
-1. WHEN a valid TOML config file path is provided, THE Config_Loader SHALL parse it into a Config_Model instance
-2. WHEN a config file path does not exist, THE Config_Loader SHALL return a default Config_Model with sensible defaults
-3. WHEN a config file contains invalid TOML syntax, THE Config_Loader SHALL raise a descriptive error
-4. WHEN a config file contains unknown fields, THE Config_Loader SHALL ignore them without raising errors
-5. WHEN a config file omits optional fields, THE Config_Loader SHALL populate them with default values
-6. THE Config_Model SHALL include fields for session_merge_dedupe_window_minutes, default_sources, and classification_overrides
-7. FOR ALL valid config files, loading then serializing then loading SHALL produce an equivalent Config_Model (round-trip property)
+1. WHEN a valid TOML config file path is provided, THE ConfigLoader SHALL parse it into a ConfigModel instance
+2. WHEN a config file path does not exist, THE ConfigLoader SHALL return a default ConfigModel with sensible defaults
+3. WHEN a config file contains invalid TOML syntax, THE ConfigLoader SHALL raise a descriptive error
+4. WHEN a config file contains unknown fields, THE ConfigLoader SHALL ignore them without raising errors
+5. WHEN a config file omits optional fields, THE ConfigLoader SHALL populate them with default values
+6. THE ConfigModel SHALL include fields for session_merge_dedupe_window_minutes, default_sources, and classification_overrides
+7. FOR ALL valid config files, loading then serializing then loading SHALL produce an equivalent ConfigModel (round-trip property)
 
 ### Requirement 4: Define Configuration Data Model
 
@@ -69,13 +69,13 @@ This document specifies requirements for implementing nine incomplete modules in
 
 #### Acceptance Criteria
 
-1. THE Config_Model SHALL be a dataclass with slots=True following project conventions
-2. THE Config_Model SHALL include a session_merge_dedupe_window_minutes field with default value 2
-3. THE Config_Model SHALL include a default_sources field as a list of strings with default empty list
-4. THE Config_Model SHALL include a classification_overrides field as a dict mapping paths to classifications
-5. THE Config_Model SHALL validate that session_merge_dedupe_window_minutes is a positive integer
-6. THE Config_Model SHALL validate that default_sources contains only valid SourceName enum values
-7. WHEN invalid field values are provided, THE Config_Model SHALL raise a validation error during construction
+1. THE ConfigModel SHALL be a dataclass with slots=True following project conventions
+2. THE ConfigModel SHALL include a session_merge_dedupe_window_minutes field with default value 2
+3. THE ConfigModel SHALL include a default_sources field as a list of strings with default empty list
+4. THE ConfigModel SHALL include a classification_overrides field as a dict mapping paths to classifications
+5. THE ConfigModel SHALL validate that session_merge_dedupe_window_minutes is a positive integer
+6. THE ConfigModel SHALL validate that default_sources contains only valid SourceName enum values
+7. WHEN invalid field values are provided, THE ConfigModel SHALL raise a validation error during construction
 
 ### Requirement 5: Apply Database Schema Migrations
 
@@ -139,10 +139,10 @@ This document specifies requirements for implementing nine incomplete modules in
 
 #### Acceptance Criteria
 
-1. THE Platform_Detector SHALL detect the Windows version (10, 11, Server 2019, etc.)
-2. THE Platform_Detector SHALL return the Windows system directory path (typically C:\Windows\System32)
-3. THE Platform_Detector SHALL return the Program Files directory path
-4. THE Platform_Detector SHALL return the user profile directory path for the current user
-5. WHEN running on a non-Windows platform, THE Platform_Detector SHALL return None for all Windows-specific paths
-6. THE Platform_Detector SHALL cache detected values to avoid repeated system calls
+1. THE PlatformDetector SHALL detect the Windows version (10, 11, Server 2019, etc.)
+2. THE PlatformDetector SHALL return the Windows system directory path (typically C:\Windows\System32)
+3. THE PlatformDetector SHALL return the Program Files directory path
+4. THE PlatformDetector SHALL return the user profile directory path for the current user
+5. WHEN running on a non-Windows platform, THE PlatformDetector SHALL return None for all Windows-specific paths
+6. THE PlatformDetector SHALL cache detected values to avoid repeated system calls
 7. FOR ALL Windows systems, detecting platform info twice SHALL produce identical results (idempotence)

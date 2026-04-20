@@ -33,7 +33,7 @@ graph TD
 
 1. **Metadata Extraction**: Windows PE files → metadata extractor → version info fields
 2. **Path Normalization**: Raw paths → path normalizer → canonical lowercase paths
-3. **Configuration**: TOML files → config loader → validated Config_Model
+3. **Configuration**: TOML files → config loader → validated ConfigModel
 4. **Database Operations**: Schema version check → migrations → current schema
 5. **Repository Access**: Entity operations → repositories → Database connection
 6. **Utilities**: System calls → clock/hasher/platform → normalized values
@@ -89,8 +89,8 @@ class MetadataExtractor:
 
 **Dependencies**:
 - `pathlib.PureWindowsPath` for path manipulation
-- `os.path.expandvars` for environment variable expansion
-- `os.path.abspath` for relative path resolution
+- `os.path.expandvars` with Windows-style case-insensitive fallback expansion
+- `pathlib.Path.resolve()` for host-safe relative path resolution during tests
 
 **Public Interface**:
 
@@ -104,6 +104,9 @@ class PathNormalizer:
         
     def _expand_variables(self, path: str) -> str:
         """Expand environment variables like %ProgramFiles%."""
+
+    def _expand_variable(self, match: re.Match[str]) -> str:
+        """Expand one Windows-style environment variable case-insensitively."""
         
     def _to_absolute(self, path: str) -> str:
         """Convert relative path to absolute."""
@@ -115,7 +118,7 @@ class PathNormalizer:
 **Implementation Strategy**:
 - Return None for None or empty input
 - Strip leading/trailing whitespace and quotes
-- Expand environment variables using `os.path.expandvars`
+- Expand environment variables using `os.path.expandvars` plus a case-insensitive `%VAR%` fallback lookup
 - Convert forward slashes to backslashes
 - Resolve to absolute path if relative
 - Convert entire path to lowercase
@@ -123,17 +126,17 @@ class PathNormalizer:
 
 ### 3. Config Loader (config/loader.py)
 
-**Purpose**: Load and parse TOML configuration files into validated Config_Model instances.
+**Purpose**: Load and parse TOML configuration files into validated ConfigModel instances.
 
 **Dependencies**:
 - `tomllib` (Python 3.11+) for TOML parsing
-- `config/models.py` for Config_Model dataclass
+- `config/models.py` for ConfigModel dataclass
 
 **Public Interface**:
 
 ```python
 class ConfigLoader:
-    def load(self, path: Path | None = None) -> Config_Model:
+    def load(self, path: Path | None = None) -> ConfigModel:
         """Load config from TOML file or return defaults."""
         
     def _parse_toml(self, path: Path) -> dict[str, Any]:
@@ -144,12 +147,12 @@ class ConfigLoader:
 ```
 
 **Implementation Strategy**:
-- If path is None or doesn't exist, return default Config_Model
+- If path is None or doesn't exist, return default ConfigModel
 - Use `tomllib.load()` to parse TOML
 - Catch `tomllib.TOMLDecodeError` and raise descriptive error
 - Ignore unknown fields (only extract known config keys)
 - Apply defaults for missing optional fields
-- Pass validated dict to Config_Model constructor
+- Pass validated dict to ConfigModel constructor
 
 ### 4. Config Model (config/models.py)
 
@@ -161,26 +164,35 @@ class ConfigLoader:
 **Public Interface**:
 
 ```python
-@dataclass(slots=True)
-class Config_Model:
-    session_merge_dedupe_window_minutes: int = 2
-    default_sources: list[str] = field(default_factory=list)
-    classification_overrides: dict[str, str] = field(default_factory=dict)
-    
-    def __post_init__(self) -> None:
-        """Validate field values after construction."""
-        
-    def _validate_merge_window(self) -> None:
-        """Ensure merge window is positive integer."""
-        
-    def _validate_sources(self) -> None:
-        """Ensure sources are valid SourceName enum values."""
+@dataclass(slots=True, init=False)
+class ConfigModel:
+    defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
+    scan: ScanConfig = field(default_factory=ScanConfig)
+    me: MeConfig = field(default_factory=MeConfig)
+    report: ReportConfig = field(default_factory=ReportConfig)
+    doctor: DoctorConfig = field(default_factory=DoctorConfig)
+    titles: TitlesConfig = field(default_factory=TitlesConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    inspect: InspectConfig = field(default_factory=InspectConfig)
+    sources: SourcesConfig = field(default_factory=SourcesConfig)
+    map: MapConfig = field(default_factory=MapConfig)
+    export: ExportConfig = field(default_factory=ExportConfig)
+    profiles: dict[str, ProfileConfig] = field(default_factory=dict)
+
+    @property
+    def session_merge_dedupe_window_minutes(self) -> int: ...
+
+    @property
+    def default_sources(self) -> list[str]: ...
+
+    @property
+    def classification_overrides(self) -> dict[str, str]: ...
 ```
 
 **Implementation Strategy**:
-- Use `@dataclass(slots=True)` following project conventions
-- Provide sensible defaults for all fields
-- Implement `__post_init__` for validation
+- Use `@dataclass(slots=True, init=False)` with nested command/default/profile sections
+- Keep the legacy top-level constructor convenience for `session_merge_dedupe_window_minutes`, `default_sources`, and `classification_overrides`
+- Surface those legacy values through properties backed by `defaults.reconstruction` and `defaults.classification`
 - Validate `session_merge_dedupe_window_minutes > 0`
 - Validate each source in `default_sources` is a valid SourceName
 - Raise `ValueError` with descriptive message on validation failure
@@ -446,17 +458,26 @@ class ExecutableMetadata:
 
 Used by MetadataExtractor to return extracted PE file metadata.
 
-### Config_Model
+### ConfigModel
 
 ```python
-@dataclass(slots=True)
-class Config_Model:
-    session_merge_dedupe_window_minutes: int = 2
-    default_sources: list[str] = field(default_factory=list)
-    classification_overrides: dict[str, str] = field(default_factory=dict)
+@dataclass(slots=True, init=False)
+class ConfigModel:
+    defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
+    scan: ScanConfig = field(default_factory=ScanConfig)
+    me: MeConfig = field(default_factory=MeConfig)
+    report: ReportConfig = field(default_factory=ReportConfig)
+    doctor: DoctorConfig = field(default_factory=DoctorConfig)
+    titles: TitlesConfig = field(default_factory=TitlesConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    inspect: InspectConfig = field(default_factory=InspectConfig)
+    sources: SourcesConfig = field(default_factory=SourcesConfig)
+    map: MapConfig = field(default_factory=MapConfig)
+    export: ExportConfig = field(default_factory=ExportConfig)
+    profiles: dict[str, ProfileConfig] = field(default_factory=dict)
 ```
 
-Represents validated configuration loaded from TOML files.
+Represents validated configuration loaded from TOML files, with legacy top-level accessors for the reconstruction defaults that the initial spec bundle targeted.
 
 ### Migration
 
@@ -622,7 +643,7 @@ After analyzing the acceptance criteria, I've identified the following propertie
 
 ### Property 10: Config TOML Parsing
 
-*For any* valid TOML configuration file, the ConfigLoader SHALL successfully parse it into a Config_Model instance with all specified fields populated.
+*For any* valid TOML configuration file, the ConfigLoader SHALL successfully parse it into a ConfigModel instance with all specified fields populated.
 
 **Validates: Requirements 3.1**
 
@@ -634,7 +655,7 @@ After analyzing the acceptance criteria, I've identified the following propertie
 
 ### Property 12: Config Unknown Fields Ignored
 
-*For any* TOML configuration file containing unknown fields not in Config_Model, the ConfigLoader SHALL ignore them without raising errors.
+*For any* TOML configuration file containing unknown fields not in ConfigModel, the ConfigLoader SHALL ignore them without raising errors.
 
 **Validates: Requirements 3.4**
 
@@ -646,25 +667,25 @@ After analyzing the acceptance criteria, I've identified the following propertie
 
 ### Property 14: Config Round-Trip Preservation
 
-*For any* valid Config_Model instance, serializing it to TOML then loading it back SHALL produce an equivalent Config_Model.
+*For any* valid ConfigModel instance, serializing it to TOML then loading it back SHALL produce an equivalent ConfigModel.
 
 **Validates: Requirements 3.7**
 
 ### Property 15: Config Positive Integer Validation
 
-*For any* Config_Model construction with session_merge_dedupe_window_minutes, the value SHALL be validated as a positive integer, raising ValueError for zero or negative values.
+*For any* ConfigModel construction with session_merge_dedupe_window_minutes, the value SHALL be validated as a positive integer, raising ValueError for zero or negative values.
 
 **Validates: Requirements 4.5**
 
 ### Property 16: Config Valid Source Names Validation
 
-*For any* Config_Model construction with default_sources list, each source SHALL be validated as a valid SourceName enum value, raising ValueError for invalid sources.
+*For any* ConfigModel construction with default_sources list, each source SHALL be validated as a valid SourceName enum value, raising ValueError for invalid sources.
 
 **Validates: Requirements 4.6**
 
 ### Property 17: Config Invalid Values Raise Errors
 
-*For any* Config_Model construction with invalid field values, a validation error SHALL be raised during __post_init__.
+*For any* ConfigModel construction with invalid field values, a validation error SHALL be raised during __post_init__.
 
 **Validates: Requirements 4.7**
 
@@ -788,9 +809,9 @@ After analyzing the acceptance criteria, I've identified the following propertie
 
 ### Config Loader
 
-- **Missing File**: Return default Config_Model with sensible defaults
+- **Missing File**: Return default ConfigModel with sensible defaults
 - **Invalid TOML**: Raise TOMLDecodeError with descriptive message
-- **Validation Errors**: Raise ValueError from Config_Model.__post_init__
+- **Validation Errors**: Raise ValueError from ConfigModel.__post_init__
 
 ### Migration Engine
 
@@ -856,12 +877,12 @@ This feature requires a balanced approach between unit tests and property-based 
 
 ```
 tests/
-  test_normalize_metadata.py    # Unit tests for MetadataExtractor
+  test_metadata.py             # Unit tests for MetadataExtractor
   test_normalize_pathing.py     # Property tests for PathNormalizer
-  test_config_loader.py          # Unit + property tests for ConfigLoader
-  test_config_models.py          # Property tests for Config_Model validation
-  test_store_migrations.py       # Unit + property tests for MigrationEngine
-  test_store_repositories.py     # Property tests for Repository pattern
+  test_config_loader.py         # Unit + property tests for ConfigLoader
+  test_command_config_integration.py  # Config precedence and CLI override coverage
+  test_store_migrations.py      # Unit + property tests for MigrationEngine
+  test_store_repositories.py    # Property tests for Repository pattern
   test_utils_clock.py            # Property tests for Clock
   test_utils_hashing.py          # Property tests for Hasher
   test_utils_platform.py         # Integration tests for PlatformDetector
@@ -950,9 +971,9 @@ default = ["security_log", "prefetch", "userassist", "srum"]
 overrides = { "C:\\Games\\MyGame.exe" = "game", "C:\\Tools\\Helper.exe" = "helper" }
 ```
 
-Mapped to Config_Model:
+Mapped to ConfigModel:
 ```python
-Config_Model(
+ConfigModel(
     session_merge_dedupe_window_minutes=2,
     default_sources=["security_log", "prefetch", "userassist", "srum"],
     classification_overrides={
