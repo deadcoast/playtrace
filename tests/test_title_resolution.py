@@ -382,6 +382,31 @@ def test_duplicate_candidates_reduce_verification_fanout_for_titles_sharing_only
     assert resolver.duplicate_reason_calls < 100
 
 
+def test_duplicate_candidates_reduce_fanout_for_dense_common_token_buckets() -> None:
+    titles = [
+        ResolvedTitle(
+            title_id=f"title:quest:{index}",
+            title=(
+                f"{chr(97 + (index % 20)) * 6}{chr(97 + (index // 20)) * 6} "
+                f"quest "
+                f"{chr(122 - (index % 20)) * 6}{chr(122 - (index // 20)) * 6}"
+            ),
+            classification=Classification.GAME,
+            classification_confidence=ConfidenceLevel.HIGH,
+            title_confidence=ConfidenceLevel.HIGH,
+            launcher=None,
+            primary_exe_id=f"exe:{index}",
+        )
+        for index in range(40)
+    ]
+    resolver = CountingTitleResolver()
+
+    candidates = resolver._duplicate_candidates(titles)
+
+    assert candidates == []
+    assert resolver.duplicate_reason_calls < 100
+
+
 def test_duplicate_candidates_only_include_titles_directly_verified_with_primary() -> None:
     primary = ResolvedTitle(
         title_id="title:mystery-quest",

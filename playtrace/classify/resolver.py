@@ -61,7 +61,7 @@ class TitleResolver:
         "trial",
     }
     _DUPLICATE_HEAD_TAIL_LENGTH = 3
-    _DUPLICATE_DENSE_BUCKET_LIMIT = 24
+    _DUPLICATE_DENSE_BUCKET_LIMIT = 12
 
     def resolve(
         self,
@@ -512,21 +512,11 @@ class TitleResolver:
         *,
         bucket_kind: str,
     ) -> bool:
-        if (
+        del bucket_kind
+        return (
             left.normalized_title in right.normalized_title
             or right.normalized_title in left.normalized_title
-        ):
-            return True
-
-        if bucket_kind == "token":
-            return bool(
-                left.prefix_key
-                and left.prefix_key == right.prefix_key
-                or left.suffix_key
-                and left.suffix_key == right.suffix_key
-            )
-
-        return abs(left.length_band - right.length_band) <= 1
+        )
 
     def _duplicate_group_component(
         self,
