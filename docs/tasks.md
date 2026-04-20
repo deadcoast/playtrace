@@ -4,8 +4,8 @@
 
 This plan implements nine incomplete modules across four packages (utils, normalize, config, store) following the dependency order: utils → normalize → config → store. Each module includes implementation tasks with property-based tests for universal correctness properties and unit tests for specific examples. The implementation follows Python 3.12 conventions with typed interfaces, dataclasses with slots, and comprehensive error handling.
 
-Status: Verified complete against the recovery branch source on 2026-04-17.
-Validation: `uv run pytest` (`92 passed`) and the documented-scope targeted suite (`47 passed`).
+Status: Reconciled against the current `main` implementation line on 2026-04-19.
+Validation: `uv run pytest tests/test_metadata.py tests/test_normalize_pathing.py tests/test_config_loader.py tests/test_config_resolver.py tests/test_command_config_integration.py tests/test_store_migrations.py tests/test_store_repositories.py tests/test_utils_clock.py tests/test_utils_hashing.py tests/test_utils_platform.py -q` (`79 passed`) and `uv run pytest -q` (`180 passed`).
 
 ## Tasks
 
@@ -170,8 +170,8 @@ Validation: `uv run pytest` (`92 passed`) and the documented-scope targeted suit
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 8. Implement Config Model (config/models.py)
-  - [x] 8.1 Create Config_Model dataclass with validation
-    - Define Config_Model with session_merge_dedupe_window_minutes (default 2), default_sources (default []), classification_overrides (default {})
+  - [x] 8.1 Create ConfigModel dataclass with validation
+    - Define ConfigModel with session_merge_dedupe_window_minutes (default 2), default_sources (default []), classification_overrides (default {})
     - Use @dataclass(slots=True) following project conventions
     - Implement `__post_init__()` for field validation
     - Implement `_validate_merge_window()` ensuring positive integer
@@ -199,7 +199,7 @@ Validation: `uv run pytest` (`92 passed`) and the documented-scope targeted suit
     - Implement `load()` loading config from TOML file or returning defaults
     - Implement `_parse_toml()` parsing TOML file with tomllib
     - Implement `_apply_defaults()` filling missing fields with default values
-    - Return default Config_Model if path is None or doesn't exist
+    - Return default ConfigModel if path is None or doesn't exist
     - Catch tomllib.TOMLDecodeError and raise descriptive error
     - Ignore unknown fields (only extract known config keys)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
@@ -207,7 +207,7 @@ Validation: `uv run pytest` (`92 passed`) and the documented-scope targeted suit
   - [x] 9.2 Write property test for TOML parsing
     - **Property 10: Config TOML Parsing**
     - **Validates: Requirements 3.1**
-    - Generate valid TOML config files, verify successful parsing into Config_Model
+    - Generate valid TOML config files, verify successful parsing into ConfigModel
   
   - [x] 9.3 Write property test for invalid TOML error handling
     - **Property 11: Config Invalid TOML Error Handling**
@@ -227,7 +227,7 @@ Validation: `uv run pytest` (`92 passed`) and the documented-scope targeted suit
   - [x] 9.6 Write property test for config round-trip preservation
     - **Property 14: Config Round-Trip Preservation**
     - **Validates: Requirements 3.7**
-    - Generate Config_Model instances, verify serialize → load produces equivalent model
+    - Generate ConfigModel instances, verify serialize → load produces equivalent model
   
   - [x] 9.7 Write unit tests for config loading scenarios
     - Test loading valid TOML with all fields
