@@ -37,11 +37,11 @@ class ResolveResult:
 @dataclass(slots=True, frozen=True)
 class _DuplicateFingerprint:
     index: int
-    title_id: str
     normalized_title: str
     informative_tokens: tuple[str, ...]
     length_band: int
-    launcher_key: str | None
+    prefix_key: str | None
+    suffix_key: str | None
 
 
 class TitleResolver:
@@ -51,7 +51,7 @@ class TitleResolver:
         ConfidenceLevel.LOW: 2,
         ConfidenceLevel.UNKNOWN: 3,
     }
-    _DUPLICATE_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+    _DUPLICATE_TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
     _DUPLICATE_TOKEN_STOPWORDS = {
         "demo",
         "edition",
@@ -60,6 +60,8 @@ class TitleResolver:
         "the",
         "trial",
     }
+    _DUPLICATE_HEAD_TAIL_LENGTH = 3
+    _DUPLICATE_DENSE_BUCKET_LIMIT = 24
 
     def resolve(
         self,
@@ -371,8 +373,10 @@ class TitleResolver:
 
     def _duplicate_candidates(self, titles: list[ResolvedTitle]) -> list[DuplicateCandidate]:
         candidate_pairs = self._duplicate_candidate_pairs(titles)
+        fingerprints = [self._duplicate_fingerprint(index, title) for index, title in enumerate(titles)]
         verified_pairs: set[tuple[int, int]] = set()
         pair_reasons: dict[tuple[int, int], list[str]] = {}
+        adjacency: dict[int, set[int]] = defaultdict(set)
 
         for left_index, right_index in sorted(candidate_pairs):
             duplicate_reasons = self._duplicate_reasons(titles[left_index], titles[right_index])
@@ -381,26 +385,30 @@ class TitleResolver:
             pair = (left_index, right_index)
             verified_pairs.add(pair)
             pair_reasons[pair] = duplicate_reasons
+            adjacency[left_index].add(right_index)
+            adjacency[right_index].add(left_index)
 
         candidates: list[DuplicateCandidate] = []
-        for component in self._duplicate_groups(verified_pairs):
-            group = [titles[index] for index in component]
-            primary = sorted(
-                group,
-                key=lambda item: (
-                    self._CONFIDENCE_ORDER.get(item.title_confidence, 99),
-                    -len(normalize_title(item.title)),
-                    item.title.casefold(),
-                ),
-            )[0]
-            related = [title for title in group if title.title_id != primary.title_id]
-            component_indexes = set(component)
+        remaining = set(adjacency)
+        while remaining:
+            component = self._duplicate_group_component(min(remaining), adjacency, remaining)
+            primary_index = self._select_duplicate_primary(component, titles)
+            related_indexes = sorted(
+                index
+                for index in adjacency.get(primary_index, set())
+                if index in component and index in remaining
+            )
+            if not related_indexes:
+                remaining.remove(primary_index)
+                continue
+
+            primary = titles[primary_index]
+            related = [titles[index] for index in related_indexes]
             reasons = sorted(
                 {
                     reason
-                    for pair, duplicate_reasons in pair_reasons.items()
-                    if pair[0] in component_indexes and pair[1] in component_indexes
-                    for reason in duplicate_reasons
+                    for related_index in related_indexes
+                    for reason in pair_reasons[self._ordered_pair(primary_index, related_index)]
                 }
             )
             candidates.append(
@@ -412,6 +420,7 @@ class TitleResolver:
                     reasons=sorted(set(reasons)),
                 )
             )
+            remaining.difference_update({primary_index, *related_indexes})
 
         return candidates
 
@@ -419,22 +428,28 @@ class TitleResolver:
         normalized_title = normalize_title(title.title)
         return _DuplicateFingerprint(
             index=index,
-            title_id=title.title_id,
             normalized_title=normalized_title,
             informative_tokens=self._informative_duplicate_tokens(title.title),
             length_band=len(normalized_title) // 8,
-            launcher_key=title.launcher.casefold() if title.launcher else None,
+            prefix_key=self._duplicate_head_key(normalized_title),
+            suffix_key=self._duplicate_tail_key(normalized_title),
         )
 
     def _informative_duplicate_tokens(self, title: str) -> tuple[str, ...]:
         tokens: list[str] = []
         seen: set[str] = set()
 
-        for token in self._DUPLICATE_TOKEN_PATTERN.findall(title.casefold()):
+        for raw_token in self._DUPLICATE_TOKEN_PATTERN.findall(title.casefold()):
+            token = normalize_title(raw_token)
             if token in seen or token in self._DUPLICATE_TOKEN_STOPWORDS:
                 continue
-            if len(token) < 3 and not any(character.isdigit() for character in token):
+
+            has_digit = any(character.isdigit() for character in token)
+            if len(token) < 3 and not has_digit:
                 continue
+            if token.isdigit() and len(token) < 2:
+                continue
+
             seen.add(token)
             tokens.append(token)
 
@@ -448,18 +463,28 @@ class TitleResolver:
         fingerprints = [self._duplicate_fingerprint(index, title) for index, title in enumerate(titles)]
         normalized_buckets: dict[str, list[_DuplicateFingerprint]] = defaultdict(list)
         token_buckets: dict[str, list[_DuplicateFingerprint]] = defaultdict(list)
+        prefix_buckets: dict[str, list[_DuplicateFingerprint]] = defaultdict(list)
+        suffix_buckets: dict[str, list[_DuplicateFingerprint]] = defaultdict(list)
 
         for fingerprint in fingerprints:
             if fingerprint.normalized_title:
                 normalized_buckets[fingerprint.normalized_title].append(fingerprint)
             for token in fingerprint.informative_tokens:
                 token_buckets[token].append(fingerprint)
+            if fingerprint.prefix_key:
+                prefix_buckets[fingerprint.prefix_key].append(fingerprint)
+            if fingerprint.suffix_key:
+                suffix_buckets[fingerprint.suffix_key].append(fingerprint)
 
         pairs: set[tuple[int, int]] = set()
         for bucket in normalized_buckets.values():
-            self._extend_duplicate_candidate_pairs(bucket, pairs, enforce_length_band=False)
+            self._extend_duplicate_candidate_pairs(bucket, pairs, bucket_kind="normalized")
         for bucket in token_buckets.values():
-            self._extend_duplicate_candidate_pairs(bucket, pairs, enforce_length_band=True)
+            self._extend_duplicate_candidate_pairs(bucket, pairs, bucket_kind="token")
+        for bucket in prefix_buckets.values():
+            self._extend_duplicate_candidate_pairs(bucket, pairs, bucket_kind="prefix")
+        for bucket in suffix_buckets.values():
+            self._extend_duplicate_candidate_pairs(bucket, pairs, bucket_kind="suffix")
         return pairs
 
     def _extend_duplicate_candidate_pairs(
@@ -467,45 +492,92 @@ class TitleResolver:
         bucket: list[_DuplicateFingerprint],
         pairs: set[tuple[int, int]],
         *,
-        enforce_length_band: bool,
+        bucket_kind: str,
     ) -> None:
-        ordered_bucket = sorted(bucket, key=lambda fingerprint: fingerprint.index)
-        for left_offset, left in enumerate(ordered_bucket):
-            for right in ordered_bucket[left_offset + 1 :]:
-                if enforce_length_band and abs(left.length_band - right.length_band) > 1:
+        dense_bucket = len(bucket) > self._DUPLICATE_DENSE_BUCKET_LIMIT
+        for left_offset, left in enumerate(bucket):
+            for right in bucket[left_offset + 1 :]:
+                if dense_bucket and not self._keep_dense_duplicate_pair(
+                    left,
+                    right,
+                    bucket_kind=bucket_kind,
+                ):
                     continue
                 pairs.add((left.index, right.index))
 
-    def _duplicate_groups(self, verified_pairs: set[tuple[int, int]]) -> list[list[int]]:
-        if not verified_pairs:
-            return []
+    def _keep_dense_duplicate_pair(
+        self,
+        left: _DuplicateFingerprint,
+        right: _DuplicateFingerprint,
+        *,
+        bucket_kind: str,
+    ) -> bool:
+        if (
+            left.normalized_title in right.normalized_title
+            or right.normalized_title in left.normalized_title
+        ):
+            return True
 
-        adjacency: dict[int, set[int]] = defaultdict(set)
-        for left_index, right_index in verified_pairs:
-            adjacency[left_index].add(right_index)
-            adjacency[right_index].add(left_index)
+        if bucket_kind == "token":
+            return bool(
+                left.prefix_key
+                and left.prefix_key == right.prefix_key
+                or left.suffix_key
+                and left.suffix_key == right.suffix_key
+            )
 
-        components: list[list[int]] = []
+        return abs(left.length_band - right.length_band) <= 1
+
+    def _duplicate_group_component(
+        self,
+        start_index: int,
+        adjacency: dict[int, set[int]],
+        remaining: set[int],
+    ) -> list[int]:
+        stack = [start_index]
+        component: list[int] = []
         visited: set[int] = set()
-        for start_index in sorted(adjacency):
-            if start_index in visited:
-                continue
-            stack = [start_index]
-            component: list[int] = []
-            while stack:
-                current = stack.pop()
-                if current in visited:
-                    continue
-                visited.add(current)
-                component.append(current)
-                stack.extend(
-                    neighbor
-                    for neighbor in sorted(adjacency[current], reverse=True)
-                    if neighbor not in visited
-                )
-            components.append(sorted(component))
 
-        return components
+        while stack:
+            current = stack.pop()
+            if current in visited or current not in remaining:
+                continue
+            visited.add(current)
+            component.append(current)
+            stack.extend(
+                neighbor
+                for neighbor in sorted(adjacency.get(current, set()), reverse=True)
+                if neighbor in remaining and neighbor not in visited
+            )
+
+        return sorted(component)
+
+    def _select_duplicate_primary(
+        self,
+        component: list[int],
+        titles: list[ResolvedTitle],
+    ) -> int:
+        return sorted(
+            component,
+            key=lambda index: (
+                self._CONFIDENCE_ORDER.get(titles[index].title_confidence, 99),
+                -len(normalize_title(titles[index].title)),
+                titles[index].title.casefold(),
+            ),
+        )[0]
+
+    def _ordered_pair(self, left_index: int, right_index: int) -> tuple[int, int]:
+        return (left_index, right_index) if left_index < right_index else (right_index, left_index)
+
+    def _duplicate_head_key(self, normalized_title: str) -> str | None:
+        if len(normalized_title) < self._DUPLICATE_HEAD_TAIL_LENGTH:
+            return normalized_title or None
+        return normalized_title[: self._DUPLICATE_HEAD_TAIL_LENGTH]
+
+    def _duplicate_tail_key(self, normalized_title: str) -> str | None:
+        if len(normalized_title) < self._DUPLICATE_HEAD_TAIL_LENGTH:
+            return normalized_title or None
+        return normalized_title[-self._DUPLICATE_HEAD_TAIL_LENGTH :]
 
     def _duplicate_reasons(self, left: ResolvedTitle, right: ResolvedTitle) -> list[str]:
         normalized_left = normalize_title(left.title)

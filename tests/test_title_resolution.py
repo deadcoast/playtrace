@@ -278,6 +278,58 @@ def test_duplicate_candidates_keep_reconstructed_variants() -> None:
     assert candidates[0].primary_title == "ELDEN RING"
 
 
+def test_duplicate_candidates_keep_fuzzy_variants_without_shared_tokens() -> None:
+    left = ResolvedTitle(
+        title_id="title:balatro",
+        title="Balatro",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher=None,
+        primary_exe_id="exe:1",
+    )
+    right = ResolvedTitle(
+        title_id="title:balatroo",
+        title="Balatroo",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher=None,
+        primary_exe_id="exe:2",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([left, right])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title == "Balatro"
+
+
+def test_duplicate_candidates_keep_non_ascii_near_matches() -> None:
+    left = ResolvedTitle(
+        title_id="title:pokemon",
+        title="Pokemon",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher=None,
+        primary_exe_id="exe:1",
+    )
+    right = ResolvedTitle(
+        title_id="title:pokemon-accented",
+        title="Pokémon",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher=None,
+        primary_exe_id="exe:2",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([left, right])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title == "Pokemon"
+
+
 class CountingTitleResolver(TitleResolver):
     def __init__(self) -> None:
         super().__init__()
@@ -307,6 +359,63 @@ def test_duplicate_candidates_reduce_verification_fanout_for_unrelated_titles() 
 
     assert candidates == []
     assert resolver.duplicate_reason_calls < 100
+
+
+def test_duplicate_candidates_reduce_verification_fanout_for_titles_sharing_only_single_digit_tokens() -> None:
+    titles = [
+        ResolvedTitle(
+            title_id=f"title:series:{index}",
+            title=f"{index:02x}{(index * 37) % 256:02x}{(index * 91) % 256:02x} 2",
+            classification=Classification.GAME,
+            classification_confidence=ConfidenceLevel.HIGH,
+            title_confidence=ConfidenceLevel.HIGH,
+            launcher=None,
+            primary_exe_id=f"exe:{index}",
+        )
+        for index in range(40)
+    ]
+    resolver = CountingTitleResolver()
+
+    candidates = resolver._duplicate_candidates(titles)
+
+    assert candidates == []
+    assert resolver.duplicate_reason_calls < 100
+
+
+def test_duplicate_candidates_only_include_titles_directly_verified_with_primary() -> None:
+    primary = ResolvedTitle(
+        title_id="title:mystery-quest",
+        title="Mystery Quest",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher=None,
+        primary_exe_id="exe:1",
+    )
+    bridge = ResolvedTitle(
+        title_id="title:mystery-quest-hd",
+        title="Mystery Quest HD",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher=None,
+        primary_exe_id="exe:2",
+    )
+    transitive = ResolvedTitle(
+        title_id="title:quest-hd",
+        title="Quest HD",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.LOW,
+        launcher=None,
+        primary_exe_id="exe:3",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([primary, bridge, transitive])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title == "Mystery Quest"
+    assert candidates[0].related_titles == ["Mystery Quest HD"]
 
 
 def test_choose_primary_executable_returns_candidate_when_all_scores_are_negative() -> None:
