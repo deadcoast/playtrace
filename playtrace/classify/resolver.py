@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 import re
 
@@ -33,12 +34,31 @@ class ResolveResult:
     duplicate_candidates: list[DuplicateCandidate] = field(default_factory=list)
 
 
+@dataclass(slots=True, frozen=True)
+class _DuplicateFingerprint:
+    index: int
+    title_id: str
+    normalized_title: str
+    informative_tokens: tuple[str, ...]
+    length_band: int
+    launcher_key: str | None
+
+
 class TitleResolver:
     _CONFIDENCE_ORDER = {
         ConfidenceLevel.HIGH: 0,
         ConfidenceLevel.MEDIUM: 1,
         ConfidenceLevel.LOW: 2,
         ConfidenceLevel.UNKNOWN: 3,
+    }
+    _DUPLICATE_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+    _DUPLICATE_TOKEN_STOPWORDS = {
+        "demo",
+        "edition",
+        "game",
+        "launcher",
+        "the",
+        "trial",
     }
 
     def resolve(
@@ -350,23 +370,21 @@ class TitleResolver:
         }
 
     def _duplicate_candidates(self, titles: list[ResolvedTitle]) -> list[DuplicateCandidate]:
+        candidate_pairs = self._duplicate_candidate_pairs(titles)
+        verified_pairs: set[tuple[int, int]] = set()
+        pair_reasons: dict[tuple[int, int], list[str]] = {}
+
+        for left_index, right_index in sorted(candidate_pairs):
+            duplicate_reasons = self._duplicate_reasons(titles[left_index], titles[right_index])
+            if not duplicate_reasons:
+                continue
+            pair = (left_index, right_index)
+            verified_pairs.add(pair)
+            pair_reasons[pair] = duplicate_reasons
+
         candidates: list[DuplicateCandidate] = []
-        seen: set[str] = set()
-        for index, title in enumerate(titles):
-            if title.title_id in seen:
-                continue
-            group = [title]
-            reasons: list[str] = []
-            for related in titles[index + 1 :]:
-                duplicate_reasons = self._duplicate_reasons(title, related)
-                if not duplicate_reasons:
-                    continue
-                group.append(related)
-                reasons.extend(duplicate_reasons)
-                seen.add(related.title_id)
-            if len(group) < 2:
-                continue
-            seen.add(title.title_id)
+        for component in self._duplicate_groups(verified_pairs):
+            group = [titles[index] for index in component]
             primary = sorted(
                 group,
                 key=lambda item: (
@@ -376,6 +394,15 @@ class TitleResolver:
                 ),
             )[0]
             related = [title for title in group if title.title_id != primary.title_id]
+            component_indexes = set(component)
+            reasons = sorted(
+                {
+                    reason
+                    for pair, duplicate_reasons in pair_reasons.items()
+                    if pair[0] in component_indexes and pair[1] in component_indexes
+                    for reason in duplicate_reasons
+                }
+            )
             candidates.append(
                 DuplicateCandidate(
                     primary_title_id=primary.title_id,
@@ -388,22 +415,122 @@ class TitleResolver:
 
         return candidates
 
+    def _duplicate_fingerprint(self, index: int, title: ResolvedTitle) -> _DuplicateFingerprint:
+        normalized_title = normalize_title(title.title)
+        return _DuplicateFingerprint(
+            index=index,
+            title_id=title.title_id,
+            normalized_title=normalized_title,
+            informative_tokens=self._informative_duplicate_tokens(title.title),
+            length_band=len(normalized_title) // 8,
+            launcher_key=title.launcher.casefold() if title.launcher else None,
+        )
+
+    def _informative_duplicate_tokens(self, title: str) -> tuple[str, ...]:
+        tokens: list[str] = []
+        seen: set[str] = set()
+
+        for token in self._DUPLICATE_TOKEN_PATTERN.findall(title.casefold()):
+            if token in seen or token in self._DUPLICATE_TOKEN_STOPWORDS:
+                continue
+            if len(token) < 3 and not any(character.isdigit() for character in token):
+                continue
+            seen.add(token)
+            tokens.append(token)
+
+        if tokens:
+            return tuple(tokens)
+
+        normalized_title = normalize_title(title)
+        return (normalized_title,) if normalized_title else ()
+
+    def _duplicate_candidate_pairs(self, titles: list[ResolvedTitle]) -> set[tuple[int, int]]:
+        fingerprints = [self._duplicate_fingerprint(index, title) for index, title in enumerate(titles)]
+        normalized_buckets: dict[str, list[_DuplicateFingerprint]] = defaultdict(list)
+        token_buckets: dict[str, list[_DuplicateFingerprint]] = defaultdict(list)
+
+        for fingerprint in fingerprints:
+            if fingerprint.normalized_title:
+                normalized_buckets[fingerprint.normalized_title].append(fingerprint)
+            for token in fingerprint.informative_tokens:
+                token_buckets[token].append(fingerprint)
+
+        pairs: set[tuple[int, int]] = set()
+        for bucket in normalized_buckets.values():
+            self._extend_duplicate_candidate_pairs(bucket, pairs, enforce_length_band=False)
+        for bucket in token_buckets.values():
+            self._extend_duplicate_candidate_pairs(bucket, pairs, enforce_length_band=True)
+        return pairs
+
+    def _extend_duplicate_candidate_pairs(
+        self,
+        bucket: list[_DuplicateFingerprint],
+        pairs: set[tuple[int, int]],
+        *,
+        enforce_length_band: bool,
+    ) -> None:
+        ordered_bucket = sorted(bucket, key=lambda fingerprint: fingerprint.index)
+        for left_offset, left in enumerate(ordered_bucket):
+            for right in ordered_bucket[left_offset + 1 :]:
+                if enforce_length_band and abs(left.length_band - right.length_band) > 1:
+                    continue
+                pairs.add((left.index, right.index))
+
+    def _duplicate_groups(self, verified_pairs: set[tuple[int, int]]) -> list[list[int]]:
+        if not verified_pairs:
+            return []
+
+        adjacency: dict[int, set[int]] = defaultdict(set)
+        for left_index, right_index in verified_pairs:
+            adjacency[left_index].add(right_index)
+            adjacency[right_index].add(left_index)
+
+        components: list[list[int]] = []
+        visited: set[int] = set()
+        for start_index in sorted(adjacency):
+            if start_index in visited:
+                continue
+            stack = [start_index]
+            component: list[int] = []
+            while stack:
+                current = stack.pop()
+                if current in visited:
+                    continue
+                visited.add(current)
+                component.append(current)
+                stack.extend(
+                    neighbor
+                    for neighbor in sorted(adjacency[current], reverse=True)
+                    if neighbor not in visited
+                )
+            components.append(sorted(component))
+
+        return components
+
     def _duplicate_reasons(self, left: ResolvedTitle, right: ResolvedTitle) -> list[str]:
-        reasons: list[str] = []
         normalized_left = normalize_title(left.title)
         normalized_right = normalize_title(right.title)
         if not normalized_left or not normalized_right:
-            return reasons
-        if normalized_left == normalized_right:
-            reasons.append("normalized title collision")
-            reasons.append("metadata-backed title similarity")
-            return reasons
+            return []
 
-        if normalized_left in normalized_right or normalized_right in normalized_left:
-            reasons.append("metadata-backed title similarity")
-        similarity = title_similarity(left.title, right.title)
-        if similarity >= 0.70:
-            reasons.append("metadata-backed title similarity")
+        anchor_reasons: list[str] = []
+        supporting_reasons: list[str] = []
+        if normalized_left == normalized_right:
+            anchor_reasons.extend(
+                [
+                    "metadata-backed title similarity",
+                    "normalized title collision",
+                ]
+            )
+        elif normalized_left in normalized_right or normalized_right in normalized_left:
+            anchor_reasons.append("metadata-backed title similarity")
+        elif title_similarity(left.title, right.title) >= 0.70:
+            anchor_reasons.append("metadata-backed title similarity")
+
         if left.launcher and right.launcher and left.launcher == right.launcher:
-            reasons.append("shared launcher ancestry")
-        return reasons
+            supporting_reasons.append("shared launcher ancestry")
+
+        if not anchor_reasons:
+            return []
+
+        return sorted(set(anchor_reasons + supporting_reasons))

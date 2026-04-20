@@ -14,10 +14,11 @@ This file tracks the current recovery status. Completed rollout items are also s
 
 ## Remaining Follow-Up
 
-- [ ] Optimize duplicate-candidate detection in `TitleResolver` to remove the current `O(N^2)` full pairwise scan on large title sets. See `docs/archive/notes/2026-04-19-duplicate-detection-performance.md`.
+- [x] Optimize duplicate-candidate detection in `TitleResolver` to remove the current `O(N^2)` full pairwise scan on large title sets. See `docs/archive/notes/2026-04-19-duplicate-detection-performance.md`.
 - [x] Refine real-world title and session reconstruction heuristics on larger live datasets.
 - [x] Expand the polished visual language further across `inspect`, `sources`, and `export`.
 
 ## Validation Note
 
 - [x] `2026-04-18`: Reconstruction/lineage follow-up validated in the isolated worktree with focused reconstruction matrix `94 passed`, full suite `168 passed`, and hands-on command checks for `scan --rebuild`, `doctor --repair`, `inspect`, `sources`, and export scopes recorded in `docs/VALTEST.md`.
+- [x] `2026-04-20`: Duplicate detection optimization validated in the isolated worktree with targeted resolver coverage `16 passed`, downstream duplicate-consumer coverage `42 passed`, and full suite `185 passed`.

@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rebuilt `report`, `titles`, and `sessions` on shared snapshot loaders and removed the remaining stub paths.
 - Reintegrated `inspect`, `sources`, and `export` onto the same recovered truth layer used by the primary commands.
 - Raised the baseline visual structure across `scan`, `me`, `report`, and `doctor` with clearer dashboard sections and degraded-state handling.
+- Optimized duplicate candidate generation in `TitleResolver` with a bucket-and-verify pass, preserved the existing `DuplicateCandidate` contract, and reduced verification fanout for large unrelated title sets while keeping launcher ancestry as supporting evidence only.
 
 ## [0.1.0] - 2026-04-14
 

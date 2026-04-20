@@ -2,7 +2,7 @@
 
 Date: `2026-04-19`
 
-Status: deferred performance follow-up
+Status: completed
 
 Related code:
 
@@ -15,9 +15,9 @@ Related PR:
 
 ## Summary
 
-The current duplicate-candidate pass in `TitleResolver._duplicate_candidates()` performs a pairwise comparison across the full `titles` list. This is an `O(N^2)` walk over resolved titles.
+The original duplicate-candidate pass in `TitleResolver._duplicate_candidates()` performed a pairwise comparison across the full `titles` list. That was an `O(N^2)` walk over resolved titles.
 
-That behavior is acceptable for small and moderate title sets, but it is the remaining known scalability outlier from PR `#5`. The current implementation was kept because the correctness and lineage review items were higher priority, and this optimization needs its own follow-up instead of being changed blindly during review cleanup.
+That behavior was acceptable for small and moderate title sets, but it was the remaining known scalability outlier from PR `#5`. The follow-up is now complete.
 
 ## Why This Is A Follow-Up
 
@@ -26,33 +26,38 @@ That behavior is acceptable for small and moderate title sets, but it is the rem
 - The reconstruction/lineage rollout already landed and was validated end-to-end.
 - Optimizing this path should be done deliberately so duplicate reasoning quality does not regress while chasing lower asymptotic cost.
 
-## Current Behavior
+## Previous Behavior
 
-`_duplicate_candidates()` currently:
+`_duplicate_candidates()` previously:
 
 1. walks titles in order
 2. compares each title to every later title
 3. calls `_duplicate_reasons()` for each pair
 4. groups matches and selects a primary title by confidence and canonical-title quality
 
-This produces good duplicate reasoning, but the nested scan can dominate runtime as title counts grow toward the upper limits used elsewhere in the system.
+This produced good duplicate reasoning, but the nested scan could dominate runtime as title counts grow toward the upper limits used elsewhere in the system.
 
-## Risk
+## Resolution
 
-- slower rebuild preview on larger databases
-- slower duplicate reporting surfaces that depend on resolver output
-- unnecessary CPU work when many titles are obviously unrelated
+- Completed on `2026-04-20`.
+- `TitleResolver` now builds resolver-local duplicate fingerprints and uses bucketed candidate-pair generation before verification.
+- Duplicate verification still relies on title-based anchor evidence, while shared launcher ancestry remains surfaced as supporting reasoning only.
+- Verified duplicate edges are now merged through deterministic connected components before rebuilding `DuplicateCandidate` output, preserving the downstream contract.
+- Validation for the shipped pass:
+  - `uv run pytest tests/test_title_resolution.py -q` -> `16 passed`
+  - `uv run pytest tests/test_title_resolution.py tests/test_export_service.py tests/test_rebuild_service.py tests/test_store_schema.py -q` -> `42 passed`
+  - `uv run pytest -q` -> `185 passed`
 
-## Desired Direction
+## Shipped Direction
 
-The next pass should keep the current duplicate-quality behavior while reducing the number of expensive pairwise comparisons.
+The shipped pass kept the current duplicate-quality behavior while reducing the number of expensive pairwise comparisons.
 
-Candidate directions:
+Implemented direction:
 
-- bucket titles by normalized-title prefix or exact normalized form before similarity checks
-- short-circuit obvious non-matches before `SequenceMatcher` work
-- use launcher and classification constraints to avoid cross-bucket comparisons
-- preserve the current duplicate reasons and primary-title selection behavior
+- bucket titles by exact normalized form and informative title tokens before similarity checks
+- reduce verification fanout by comparing only blocked candidate neighborhoods instead of the full resolved-title cartesian set
+- preserve the existing duplicate reasons and primary-title selection behavior
+- prevent launcher-only matches from surfacing duplicate candidates without title-based anchor evidence
 
 ## Acceptance Criteria
 

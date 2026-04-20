@@ -229,6 +229,86 @@ def test_duplicate_candidates_prefer_higher_confidence_titles() -> None:
     assert candidates[0].primary_title == "ELDEN RING"
 
 
+def test_duplicate_candidates_require_more_than_shared_launcher() -> None:
+    left = ResolvedTitle(
+        title_id="title:alpha-protocol",
+        title="Alpha Protocol",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher="Steam",
+        primary_exe_id="exe:alpha",
+    )
+    right = ResolvedTitle(
+        title_id="title:balatro",
+        title="Balatro",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher="Steam",
+        primary_exe_id="exe:beta",
+    )
+
+    assert TitleResolver()._duplicate_candidates([left, right]) == []
+
+
+def test_duplicate_candidates_keep_reconstructed_variants() -> None:
+    left = ResolvedTitle(
+        title_id="title:elden-ring",
+        title="ELDEN RING",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher="Steam",
+        primary_exe_id="exe:1",
+    )
+    right = ResolvedTitle(
+        title_id="title:elden-ring-deluxe",
+        title="Elden Ring Deluxe",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher="Steam",
+        primary_exe_id="exe:2",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([left, right])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title == "ELDEN RING"
+
+
+class CountingTitleResolver(TitleResolver):
+    def __init__(self) -> None:
+        super().__init__()
+        self.duplicate_reason_calls = 0
+
+    def _duplicate_reasons(self, left: ResolvedTitle, right: ResolvedTitle) -> list[str]:
+        self.duplicate_reason_calls += 1
+        return super()._duplicate_reasons(left, right)
+
+
+def test_duplicate_candidates_reduce_verification_fanout_for_unrelated_titles() -> None:
+    titles = [
+        ResolvedTitle(
+            title_id=f"title:{index}",
+            title=f"{index:02x}{(index * 37) % 256:02x}{(index * 91) % 256:02x}",
+            classification=Classification.GAME,
+            classification_confidence=ConfidenceLevel.HIGH,
+            title_confidence=ConfidenceLevel.HIGH,
+            launcher=None,
+            primary_exe_id=f"exe:{index}",
+        )
+        for index in range(40)
+    ]
+    resolver = CountingTitleResolver()
+
+    candidates = resolver._duplicate_candidates(titles)
+
+    assert candidates == []
+    assert resolver.duplicate_reason_calls < 100
+
+
 def test_choose_primary_executable_returns_candidate_when_all_scores_are_negative() -> None:
     launcher = _exe(
         exe_id="path:c:\\program files (x86)\\steam\\steam.exe",
