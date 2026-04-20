@@ -164,26 +164,35 @@ class ConfigLoader:
 **Public Interface**:
 
 ```python
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class ConfigModel:
-    session_merge_dedupe_window_minutes: int = 2
-    default_sources: list[str] = field(default_factory=list)
-    classification_overrides: dict[str, str] = field(default_factory=dict)
-    
-    def __post_init__(self) -> None:
-        """Validate field values after construction."""
-        
-    def _validate_merge_window(self) -> None:
-        """Ensure merge window is positive integer."""
-        
-    def _validate_sources(self) -> None:
-        """Ensure sources are valid SourceName enum values."""
+    defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
+    scan: ScanConfig = field(default_factory=ScanConfig)
+    me: MeConfig = field(default_factory=MeConfig)
+    report: ReportConfig = field(default_factory=ReportConfig)
+    doctor: DoctorConfig = field(default_factory=DoctorConfig)
+    titles: TitlesConfig = field(default_factory=TitlesConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    inspect: InspectConfig = field(default_factory=InspectConfig)
+    sources: SourcesConfig = field(default_factory=SourcesConfig)
+    map: MapConfig = field(default_factory=MapConfig)
+    export: ExportConfig = field(default_factory=ExportConfig)
+    profiles: dict[str, ProfileConfig] = field(default_factory=dict)
+
+    @property
+    def session_merge_dedupe_window_minutes(self) -> int: ...
+
+    @property
+    def default_sources(self) -> list[str]: ...
+
+    @property
+    def classification_overrides(self) -> dict[str, str]: ...
 ```
 
 **Implementation Strategy**:
-- Use `@dataclass(slots=True)` following project conventions
-- Provide sensible defaults for all fields
-- Implement `__post_init__` for validation
+- Use `@dataclass(slots=True, init=False)` with nested command/default/profile sections
+- Keep the legacy top-level constructor convenience for `session_merge_dedupe_window_minutes`, `default_sources`, and `classification_overrides`
+- Surface those legacy values through properties backed by `defaults.reconstruction` and `defaults.classification`
 - Validate `session_merge_dedupe_window_minutes > 0`
 - Validate each source in `default_sources` is a valid SourceName
 - Raise `ValueError` with descriptive message on validation failure
@@ -452,14 +461,23 @@ Used by MetadataExtractor to return extracted PE file metadata.
 ### ConfigModel
 
 ```python
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class ConfigModel:
-    session_merge_dedupe_window_minutes: int = 2
-    default_sources: list[str] = field(default_factory=list)
-    classification_overrides: dict[str, str] = field(default_factory=dict)
+    defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
+    scan: ScanConfig = field(default_factory=ScanConfig)
+    me: MeConfig = field(default_factory=MeConfig)
+    report: ReportConfig = field(default_factory=ReportConfig)
+    doctor: DoctorConfig = field(default_factory=DoctorConfig)
+    titles: TitlesConfig = field(default_factory=TitlesConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    inspect: InspectConfig = field(default_factory=InspectConfig)
+    sources: SourcesConfig = field(default_factory=SourcesConfig)
+    map: MapConfig = field(default_factory=MapConfig)
+    export: ExportConfig = field(default_factory=ExportConfig)
+    profiles: dict[str, ProfileConfig] = field(default_factory=dict)
 ```
 
-Represents validated configuration loaded from TOML files.
+Represents validated configuration loaded from TOML files, with legacy top-level accessors for the reconstruction defaults that the initial spec bundle targeted.
 
 ### Migration
 

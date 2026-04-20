@@ -40,7 +40,7 @@ class PathNormalizer:
             return direct
 
         target = variable_name.casefold()
-        for candidate_name, candidate_value in os.environ.items():
+        for candidate_name, candidate_value in os.environ.copy().items():
             if candidate_name.casefold() == target:
                 return candidate_value
 
