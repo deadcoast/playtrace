@@ -330,6 +330,32 @@ def test_duplicate_candidates_keep_non_ascii_near_matches() -> None:
     assert candidates[0].primary_title == "Pokemon"
 
 
+def test_duplicate_candidates_keep_short_title_variants() -> None:
+    left = ResolvedTitle(
+        title_id="title:it",
+        title="IT",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.HIGH,
+        launcher=None,
+        primary_exe_id="exe:1",
+    )
+    right = ResolvedTitle(
+        title_id="title:it-deluxe",
+        title="IT Deluxe",
+        classification=Classification.GAME,
+        classification_confidence=ConfidenceLevel.HIGH,
+        title_confidence=ConfidenceLevel.MEDIUM,
+        launcher=None,
+        primary_exe_id="exe:2",
+    )
+
+    candidates = TitleResolver()._duplicate_candidates([left, right])
+
+    assert len(candidates) == 1
+    assert candidates[0].primary_title == "IT"
+
+
 class CountingTitleResolver(TitleResolver):
     def __init__(self) -> None:
         super().__init__()

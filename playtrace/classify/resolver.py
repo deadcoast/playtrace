@@ -39,7 +39,6 @@ class _DuplicateFingerprint:
     index: int
     normalized_title: str
     informative_tokens: tuple[str, ...]
-    length_band: int
     prefix_key: str | None
     suffix_key: str | None
 
@@ -373,8 +372,6 @@ class TitleResolver:
 
     def _duplicate_candidates(self, titles: list[ResolvedTitle]) -> list[DuplicateCandidate]:
         candidate_pairs = self._duplicate_candidate_pairs(titles)
-        fingerprints = [self._duplicate_fingerprint(index, title) for index, title in enumerate(titles)]
-        verified_pairs: set[tuple[int, int]] = set()
         pair_reasons: dict[tuple[int, int], list[str]] = {}
         adjacency: dict[int, set[int]] = defaultdict(set)
 
@@ -383,7 +380,6 @@ class TitleResolver:
             if not duplicate_reasons:
                 continue
             pair = (left_index, right_index)
-            verified_pairs.add(pair)
             pair_reasons[pair] = duplicate_reasons
             adjacency[left_index].add(right_index)
             adjacency[right_index].add(left_index)
@@ -430,7 +426,6 @@ class TitleResolver:
             index=index,
             normalized_title=normalized_title,
             informative_tokens=self._informative_duplicate_tokens(title.title),
-            length_band=len(normalized_title) // 8,
             prefix_key=self._duplicate_head_key(normalized_title),
             suffix_key=self._duplicate_tail_key(normalized_title),
         )
@@ -438,20 +433,34 @@ class TitleResolver:
     def _informative_duplicate_tokens(self, title: str) -> tuple[str, ...]:
         tokens: list[str] = []
         seen: set[str] = set()
+        leading_short_alpha_token: str | None = None
 
         for raw_token in self._DUPLICATE_TOKEN_PATTERN.findall(title.casefold()):
             token = normalize_title(raw_token)
+            if not token:
+                continue
             if token in seen or token in self._DUPLICATE_TOKEN_STOPWORDS:
                 continue
 
             has_digit = any(character.isdigit() for character in token)
             if len(token) < 3 and not has_digit:
+                if (
+                    len(token) == 2
+                    and token.isalpha()
+                    and leading_short_alpha_token is None
+                    and not tokens
+                ):
+                    leading_short_alpha_token = token
                 continue
             if token.isdigit() and len(token) < 2:
                 continue
 
             seen.add(token)
             tokens.append(token)
+
+        if leading_short_alpha_token and leading_short_alpha_token not in seen:
+            seen.add(leading_short_alpha_token)
+            tokens.insert(0, leading_short_alpha_token)
 
         if tokens:
             return tuple(tokens)
