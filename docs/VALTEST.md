@@ -1,5 +1,54 @@
 # Validation Test Record
 
+## Explicit Local Database Rebuild
+
+Date: `2026-04-22`
+Repository: `C:\Users\ryanf\github\_new\playtrace`
+Shell: `powershell`
+Runtime: `uv` + Python `3.13.9`
+Platform: Windows
+
+Target database:
+
+- `C:\Users\ryanf\github\_new\playtrace\playtrace.db`
+
+Backup created before mutation:
+
+- `C:\Users\ryanf\AppData\Local\Temp\playtrace-db-backups\playtrace.db.pre-rebuild-20260422-055531.bak`
+
+Preflight observations:
+
+- `uv run python -m playtrace doctor --db playtrace.db --repair` rendered a repair preview with `0` merged titles, `0` changed titles, and `0` changed sessions on the real database.
+- Because that preview path did not surface any planned mutations, the explicit in-place rebuild was run through the store rebuild entrypoint against the real `playtrace.db`.
+
+Commands run:
+
+- `uv run python -c "from playtrace.store.db import Database; db=Database('playtrace.db'); db.bootstrap(); db.rebuild_from_artifacts_and_mappings(); print('rebuilt playtrace.db')"`
+- `uv run python -c "import sqlite3; conn=sqlite3.connect('playtrace.db'); conn.row_factory=sqlite3.Row; print('titles', conn.execute('SELECT COUNT(*) FROM titles').fetchone()[0]); print('sessions', conn.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]); print('classifications', [dict(r) for r in conn.execute('SELECT classification, COUNT(*) c FROM titles GROUP BY classification ORDER BY c DESC')])"`
+- `uv run python -m playtrace report --db playtrace.db`
+- `uv run python -m playtrace titles --db playtrace.db --classification unknown`
+
+Before rebuild:
+
+- Stored derived title classifications: `42 game`
+- Stored session count: `0`
+- `report` rendered `42` tracked titles, `0` confirmed sessions, and `UNKNOWN` runtime
+
+After rebuild:
+
+- Rebuild command output: `rebuilt playtrace.db`
+- Stored derived title classifications: `42 unknown`
+- Stored session count: `0`
+- `report` still rendered `42` tracked titles, `0` confirmed sessions, and `UNKNOWN` runtime
+- `titles --classification unknown` rendered the full reconstructed title list, confirming the rebuilt derived classification state is now persisted in the real database
+
+Notes:
+
+- This was an explicit in-place mutation of the root `playtrace.db`, not an isolated temp-copy validation run.
+- The safety backup was moved out of the repository root after the rebuild so the tracked database update could be committed without leaving an untracked repo artifact behind.
+- No exact-runtime evidence was added by this rebuild, so sessions remained `0` and runtime stayed `UNKNOWN`.
+- The rebuild changed derived title classification state to match the repaired codepath without inventing playtime or sessions.
+
 Date: `2026-04-17`
 Repository: `C:\Users\ryanf\github\_new\playtrace`
 Shell: `powershell`
