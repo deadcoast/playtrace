@@ -66,23 +66,23 @@ def render_scan(console: Console, theme: Theme, snapshot: ScanLiveSnapshot) -> N
     if snapshot.warnings:
         warning_text = Text()
         for line in snapshot.warnings:
-            warning_text.append(f"• {line}\n", style=theme.warning)
+            warning_text.append(f"- {line}\n", style=theme.warning)
         console.print()
         console.print(Panel(warning_text, title="Warnings", border_style=theme.warning, padding=(1, 2)))
 
 
 def _source_status_table(theme: Theme, snapshot: ScanLiveSnapshot) -> Table:
     table = Table(title="Source Status", show_header=True, header_style=f"bold {theme.text}")
-    table.add_column("Source")
-    table.add_column("Status")
+    table.add_column("Source", overflow="fold")
+    table.add_column("Status", overflow="fold")
     table.add_column("Artifacts", justify="right")
     table.add_column("Evidence", justify="right")
-    table.add_column("Notes", ratio=2)
+    table.add_column("Notes", ratio=2, overflow="fold")
 
     for status in snapshot.sources:
         style_name = STATUS_STYLES.get(status.status, "dim")
         style = getattr(theme, style_name)
-        notes = "; ".join(status.warnings) if status.warnings else "—"
+        notes = "; ".join(status.warnings) if status.warnings else "-"
         table.add_row(
             status.source,
             f"[{style}]{status.status.replace('_', ' ')}[/{style}]",

@@ -103,3 +103,24 @@ def test_classify_executable_marks_windows_binaries_as_system() -> None:
     assert classification == Classification.SYSTEM
     assert subtype is None
     assert confidence == ConfidenceLevel.HIGH
+
+
+def test_classify_executable_leaves_weak_non_system_signals_unknown() -> None:
+    executable = ExecutableIdentity(
+        exe_id="path:c:\\users\\demo\\downloads\\chatgpt.exe",
+        normalized_key="path:c:\\users\\demo\\downloads\\chatgpt.exe",
+        path=r"C:\Users\demo\Downloads\chatgpt.exe",
+        filename="chatgpt.exe",
+        original_filename="chatgpt.exe",
+        product_name="ChatGPT",
+        file_description="ChatGPT",
+        signer=None,
+        company_name=None,
+        sha1=None,
+    )
+
+    classification, subtype, confidence = classify_executable(executable)
+
+    assert classification == Classification.UNKNOWN
+    assert subtype is None
+    assert confidence == ConfidenceLevel.UNKNOWN

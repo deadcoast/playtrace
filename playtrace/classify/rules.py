@@ -52,7 +52,7 @@ def classify_executable(
     if "overlay" in haystack:
         return Classification.OVERLAY, "overlay", ConfidenceLevel.MEDIUM
 
-    return Classification.GAME, None, ConfidenceLevel.MEDIUM
+    return Classification.UNKNOWN, None, ConfidenceLevel.UNKNOWN
 
 
 def infer_launcher_name(executable: ExecutableIdentity) -> str | None:

@@ -6,7 +6,7 @@ from rich.text import Text
 
 from playtrace.models.dashboard import IdentityDashboardSnapshot
 from playtrace.render.cards import metric_cards
-from playtrace.render.tables import titles_table
+from playtrace.render.tables import UNKNOWN_LABEL, format_duration, titles_table
 from playtrace.render.theme import Theme
 
 
@@ -36,7 +36,7 @@ def render_dashboard(console, theme: Theme, snapshot: IdentityDashboardSnapshot)
             theme,
             [
                 ("Tracked Titles", str(snapshot.coverage.tracked_titles), "reconstructed titles"),
-                ("Confirmed Runtime", _duration(snapshot.coverage.confirmed_runtime_seconds), "exact runtime"),
+                ("Confirmed Runtime", _confirmed_runtime_value(snapshot), "exact runtime"),
                 ("Sessions", str(snapshot.coverage.confirmed_sessions), "reconstructed windows"),
                 ("Unmapped", str(snapshot.coverage.unmapped_executables), "needs mapping"),
             ],
@@ -51,7 +51,7 @@ def render_dashboard(console, theme: Theme, snapshot: IdentityDashboardSnapshot)
     if snapshot.warnings:
         body = Text()
         for line in snapshot.warnings:
-            body.append(f"• {line}\n", style=theme.warning)
+            body.append(f"- {line}\n", style=theme.warning)
         console.print()
         console.print(Panel(body, title="Audit Notes", border_style=theme.warning, padding=(1, 2)))
 
@@ -65,7 +65,11 @@ def _identity_panel(theme: Theme, snapshot: IdentityDashboardSnapshot) -> Panel:
     return Panel(body, border_style=theme.accent, padding=(1, 2))
 
 
-def _duration(seconds: int) -> str:
-    hours, remainder = divmod(max(seconds, 0), 3600)
-    minutes = remainder // 60
-    return f"{hours}h {minutes:02d}m"
+def _confirmed_runtime_value(snapshot: IdentityDashboardSnapshot) -> str:
+    if (
+        snapshot.coverage.confirmed_runtime_seconds <= 0
+        and snapshot.coverage.confirmed_sessions <= 0
+        and snapshot.coverage.tracked_titles > 0
+    ):
+        return UNKNOWN_LABEL
+    return format_duration(snapshot.coverage.confirmed_runtime_seconds)

@@ -77,7 +77,7 @@ def test_doctor_render_includes_remediation_guidance(tmp_path: Path, capsys) -> 
     output = capsys.readouterr().out
     assert "How to correct this" in output
     assert "Administrator" in output
-
+    assert "•" not in output
 
 def test_doctor_snapshot_can_hold_environment_and_data_findings() -> None:
     snapshot = DoctorSnapshot(

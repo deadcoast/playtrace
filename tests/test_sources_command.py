@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from io import StringIO
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rich.console import Console
+
 from playtrace.models.evidence import EvidenceRecord, RawArtifact
 from playtrace.models.enums import EvidenceStrength, EvidenceType, SourceName
+from playtrace.render.source_views import render_sources
+from playtrace.render.theme import get_theme
 from playtrace.services.sources import SourcesRequest, SourcesService
+from playtrace.services.sources import SourceEntry, SourcesSnapshot
 from playtrace.store.db import Database
 
 
@@ -236,3 +242,33 @@ def test_sources_render_handles_conflict_panel(tmp_path: Path, capsys) -> None:
     output = capsys.readouterr().out
 
     assert "Conflicts" in output
+
+
+def test_render_sources_uses_ascii_safe_wrapping_and_missing_value_labels() -> None:
+    snapshot = SourcesSnapshot(
+        target="battle.net launcher",
+        entries=[
+            SourceEntry(
+                source="userassist",
+                evidence_type="foreground_usage",
+                strength="interactive",
+                observed_at=None,
+                raw_ref=r"userassist:C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe",
+                reasoning=(
+                    "userassist contributed interactive foreground_usage evidence from "
+                    "a long reference that should wrap instead of truncating."
+                ),
+            )
+        ],
+        conflicts=[],
+    )
+    buffer = StringIO()
+    console = Console(file=buffer, width=56, color_system=None, force_terminal=False)
+
+    render_sources(console, get_theme("mono"), snapshot)
+
+    output = buffer.getvalue()
+
+    assert "unknown" in output
+    assert "—" not in output
+    assert "…" not in output

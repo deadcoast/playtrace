@@ -66,6 +66,6 @@ def _remediation_panel(theme: Theme, snapshot: DoctorSnapshot) -> Panel:
 
     body = Text()
     for line in lines:
-        body.append(f"• {line}\n", style=theme.text)
+        body.append(f"- {line}\n", style=theme.text)
 
     return Panel(body, title="How to correct this", border_style=theme.accent, padding=(1, 2))

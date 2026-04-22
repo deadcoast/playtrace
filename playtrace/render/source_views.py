@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 from typing import TYPE_CHECKING
 
@@ -15,28 +14,24 @@ if TYPE_CHECKING:
 
 def render_sources(console: Console, theme: Theme, snapshot: SourcesSnapshot) -> None:
     console.print(Panel(Text(f"Sources for {snapshot.target}", style=f"bold {theme.accent}"), border_style=theme.accent))
-
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Source")
-    table.add_column("Evidence")
-    table.add_column("Strength")
-    table.add_column("Observed")
-    table.add_column("Reference")
-    table.add_column("Reasoning")
-
-    for entry in snapshot.entries:
-        table.add_row(
-            entry.source,
-            entry.evidence_type,
-            entry.strength,
-            entry.observed_at or "—",
-            entry.raw_ref,
-            entry.reasoning or "—",
-        )
-
-    console.print(table)
     if not snapshot.entries:
         console.print(Text("No evidence matched this target.", style=theme.dim))
+    for index, entry in enumerate(snapshot.entries, start=1):
+        body = Text()
+        body.append(f"Source: {entry.source}\n", style=theme.text)
+        body.append(f"Evidence: {entry.evidence_type}\n", style=theme.text)
+        body.append(f"Strength: {entry.strength}\n", style=theme.text)
+        body.append(f"Observed: {entry.observed_at or 'unknown'}\n", style=theme.text)
+        body.append(f"Ref: {entry.raw_ref or '-'}\n", style=theme.text)
+        body.append(f"Why: {entry.reasoning or 'unknown'}", style=theme.dim)
+        console.print(
+            Panel(
+                body,
+                title=f"Entry {index}",
+                border_style=theme.dim,
+                padding=(1, 2),
+            )
+        )
     if snapshot.conflicts:
         console.print(
             Panel(

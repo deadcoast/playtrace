@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from io import StringIO
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from rich.console import Console
+
 from playtrace.models.enums import Classification, ConfidenceLevel, RuntimeConfidence
+from playtrace.models.report import CoverageSummary, ReportSnapshot
 from playtrace.models.session import SessionRecord
 from playtrace.models.title import LaunchStats, RuntimeStats, TitleAggregate
+from playtrace.render.report_views import render_report, render_titles_view
+from playtrace.render.theme import get_theme
 from playtrace.services.reporter import ReportRequest, ReporterService, SessionsRequest, TitlesRequest
 from playtrace.store.db import Database
 
@@ -300,6 +306,62 @@ def test_render_titles_counts_gui_launches_in_total(tmp_path: Path, capsys) -> N
     assert "Balatro" in output
     assert "│        2 │" in output
 
+
+def test_render_views_use_unknown_runtime_and_ascii_safe_placeholders() -> None:
+    long_title = "PowertoysUserSetup-0.95.0-wix-bootstrap-long-name"
+    title = _title(
+        title_id="title:powertoys-bootstrap",
+        title=long_title,
+        launcher=None,
+        confirmed_seconds=0,
+        estimated_seconds=0,
+        launches_confirmed=0,
+        launches_inferred=0,
+        launches_gui=1,
+    )
+    title.runtime.confidence = ConfidenceLevel.UNKNOWN
+    snapshot = ReportSnapshot(
+        generated_at=datetime(2026, 4, 22, 9, 58, 37, tzinfo=timezone.utc),
+        host_name="homeone",
+        coverage=CoverageSummary(
+            tracked_titles=1,
+            confirmed_runtime_seconds=0,
+            estimated_runtime_seconds=0,
+            confirmed_sessions=0,
+            unmapped_executables=1,
+        ),
+        top_titles=[title],
+        warnings=["Runtime evidence is incomplete."],
+    )
+    theme = get_theme("mono")
+
+    report_buffer = StringIO()
+    report_console = Console(file=report_buffer, width=52, color_system=None, force_terminal=False)
+    render_report(report_console, theme, snapshot)
+    report_output = report_buffer.getvalue()
+
+    assert "UNKNOWN" in report_output
+    assert "0h 00m" not in report_output
+    assert "•" not in report_output
+    assert "—" not in report_output
+    assert "…" not in report_output
+
+    titles_buffer = StringIO()
+    titles_console = Console(file=titles_buffer, width=52, color_system=None, force_terminal=False)
+    render_titles_view(
+        titles_console,
+        theme,
+        titles=[title],
+        sort_by="runtime",
+        classification=None,
+        launcher=None,
+    )
+    titles_output = titles_buffer.getvalue()
+
+    assert "UNKNOWN" in titles_output
+    assert "0h 00m" not in titles_output
+    assert "—" not in titles_output
+    assert "…" not in titles_output
 
 def test_render_sessions_outputs_recent_sessions(tmp_path: Path, capsys) -> None:
     db_path = tmp_path / "playtrace.db"

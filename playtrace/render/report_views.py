@@ -6,7 +6,13 @@ from rich.text import Text
 
 from playtrace.models.report import ReportSnapshot
 from playtrace.render.cards import metric_cards
-from playtrace.render.tables import duplicate_candidates_table, format_duration, sessions_table, titles_table
+from playtrace.render.tables import (
+    UNKNOWN_LABEL,
+    duplicate_candidates_table,
+    format_duration,
+    sessions_table,
+    titles_table,
+)
 from playtrace.render.theme import Theme
 
 
@@ -25,7 +31,11 @@ def render_report(console: Console, theme: Theme, snapshot: ReportSnapshot) -> N
             theme,
             [
                 ("Tracked Titles", str(coverage.tracked_titles), "games and apps surfaced"),
-                ("Confirmed Runtime", format_duration(coverage.confirmed_runtime_seconds), "exact session-backed"),
+                (
+                    "Confirmed Runtime",
+                    _confirmed_runtime_value(snapshot),
+                    "exact session-backed",
+                ),
                 ("Confirmed Sessions", str(coverage.confirmed_sessions), "merged activity windows"),
                 ("Unmapped", str(coverage.unmapped_executables), "executables needing review"),
             ],
@@ -55,7 +65,7 @@ def render_report(console: Console, theme: Theme, snapshot: ReportSnapshot) -> N
         console.print()
         warning_text = Text()
         for line in snapshot.warnings:
-            warning_text.append(f"• {line}\n", style=theme.warning)
+            warning_text.append(f"- {line}\n", style=theme.warning)
         console.print(Panel(warning_text, title="Warnings", border_style=theme.warning, padding=(1, 2)))
 
 
@@ -99,3 +109,14 @@ def render_sessions_view(
     console.print(sessions_table(sessions))
     if not sessions:
         console.print(Text("No sessions matched the current filters.", style=theme.dim))
+
+
+def _confirmed_runtime_value(snapshot: ReportSnapshot) -> str:
+    coverage = snapshot.coverage
+    if (
+        coverage.confirmed_runtime_seconds <= 0
+        and coverage.confirmed_sessions <= 0
+        and coverage.tracked_titles > 0
+    ):
+        return UNKNOWN_LABEL
+    return format_duration(coverage.confirmed_runtime_seconds)
