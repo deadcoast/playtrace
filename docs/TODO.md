@@ -14,7 +14,8 @@ This file tracks the current recovery status. Completed rollout items are also s
 
 ## Remaining Follow-Up
 
-- [X] Optimize duplicate-candidate detection in `TitleResolver` to remove the current `O(N^2)` full pairwise scan on large title sets. See `docs/archive/notes/2026-04-19-duplicate-detection-performance.md`.
+- [x] Replace the full duplicate-verification scan with conservative indexed candidates and direct-primary verification. Worst-case work remains quadratic; see `docs/archive/notes/2026-04-19-duplicate-detection-performance.md`.
+- [ ] Resolve the pre-existing date-sensitive full-suite failure and reconcile issue #6 / superseded PRs #7 and #9 after publication verification.
 - [x] Refine real-world title and session reconstruction heuristics on larger live datasets.
 - [x] Expand the polished visual language further across `inspect`, `sources`, and `export`.
 

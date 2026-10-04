@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import Counter, defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 import re
 
@@ -40,7 +42,6 @@ class TitleResolver:
         ConfidenceLevel.LOW: 2,
         ConfidenceLevel.UNKNOWN: 3,
     }
-
     def resolve(
         self,
         executables: list[ExecutableIdentity],
@@ -350,32 +351,42 @@ class TitleResolver:
         }
 
     def _duplicate_candidates(self, titles: list[ResolvedTitle]) -> list[DuplicateCandidate]:
+        candidate_pairs = self._duplicate_candidate_pairs(titles)
+        pair_reasons: dict[tuple[int, int], list[str]] = {}
+        adjacency: dict[int, set[int]] = defaultdict(set)
+
+        for left_index, right_index in candidate_pairs:
+            duplicate_reasons = self._duplicate_reasons(titles[left_index], titles[right_index])
+            if not duplicate_reasons:
+                continue
+            pair = (left_index, right_index)
+            pair_reasons[pair] = duplicate_reasons
+            adjacency[left_index].add(right_index)
+            adjacency[right_index].add(left_index)
+
         candidates: list[DuplicateCandidate] = []
-        seen: set[str] = set()
-        for index, title in enumerate(titles):
-            if title.title_id in seen:
+        remaining = set(adjacency)
+        while remaining:
+            component = self._duplicate_group_component(min(remaining), adjacency, remaining)
+            primary_index = self._select_duplicate_primary(component, titles)
+            related_indexes = sorted(
+                index
+                for index in adjacency.get(primary_index, set())
+                if index in component and index in remaining
+            )
+            if not related_indexes:
+                remaining.remove(primary_index)
                 continue
-            group = [title]
-            reasons: list[str] = []
-            for related in titles[index + 1 :]:
-                duplicate_reasons = self._duplicate_reasons(title, related)
-                if not duplicate_reasons:
-                    continue
-                group.append(related)
-                reasons.extend(duplicate_reasons)
-                seen.add(related.title_id)
-            if len(group) < 2:
-                continue
-            seen.add(title.title_id)
-            primary = sorted(
-                group,
-                key=lambda item: (
-                    self._CONFIDENCE_ORDER.get(item.title_confidence, 99),
-                    -len(normalize_title(item.title)),
-                    item.title.casefold(),
-                ),
-            )[0]
-            related = [title for title in group if title.title_id != primary.title_id]
+
+            primary = titles[primary_index]
+            related = [titles[index] for index in related_indexes]
+            reasons = sorted(
+                {
+                    reason
+                    for related_index in related_indexes
+                    for reason in pair_reasons[self._ordered_pair(primary_index, related_index)]
+                }
+            )
             candidates.append(
                 DuplicateCandidate(
                     primary_title_id=primary.title_id,
@@ -385,25 +396,115 @@ class TitleResolver:
                     reasons=sorted(set(reasons)),
                 )
             )
+            remaining.difference_update({primary_index, *related_indexes})
 
         return candidates
 
+    def _duplicate_candidate_pairs(self, titles: list[ResolvedTitle]) -> Iterator[tuple[int, int]]:
+        """Yield a conservative superset of title-similarity matches.
+
+        Long titles use bigram postings; short titles use character postings.
+        At a SequenceMatcher ratio of 0.70, strings with combined length > 20
+        must share a bigram: M matched characters form at most S - 2*M + 1
+        runs, and 3*M > S + 1. Substrings also share the shorter title's grams.
+        Visit longest first so the shorter title chooses the safe gram size.
+        No bucket-size cap is safe: adding titles must never remove a match.
+        """
+        normalized = [normalize_title(title.title) for title in titles]
+        counts = [Counter(value) for value in normalized]
+        postings: dict[tuple[int, str], list[int]] = defaultdict(list)
+        for index in sorted(range(len(titles)), key=lambda item: (-len(normalized[item]), item)):
+            value = normalized[index]
+            if not value:
+                continue
+            gram_size = 2 if len(value) > 10 else 1
+            grams = {value[offset : offset + gram_size] for offset in range(len(value) - gram_size + 1)}
+            possible = {
+                other
+                for gram in grams
+                for other in postings.get((gram_size, gram), ())
+            }
+            for other in sorted(possible):
+                other_value = normalized[other]
+                # Containment is an anchor regardless of relative lengths.
+                if value not in other_value:
+                    total_length = len(value) + len(other_value)
+                    if 20 * len(value) < 7 * total_length:
+                        continue
+                    overlap = sum(min(count, counts[other].get(character, 0)) for character, count in counts[index].items())
+                    if 20 * overlap < 7 * total_length:
+                        continue
+                yield self._ordered_pair(index, other)
+            # Longer titles must be discoverable by either kind of shorter title.
+            for size in (1, 2):
+                for gram in {value[offset : offset + size] for offset in range(len(value) - size + 1)}:
+                    postings[(size, gram)].append(index)
+
+    def _duplicate_group_component(
+        self,
+        start_index: int,
+        adjacency: dict[int, set[int]],
+        remaining: set[int],
+    ) -> list[int]:
+        stack = [start_index]
+        component: list[int] = []
+        visited: set[int] = set()
+
+        while stack:
+            current = stack.pop()
+            if current in visited or current not in remaining:
+                continue
+            visited.add(current)
+            component.append(current)
+            stack.extend(
+                neighbor
+                for neighbor in sorted(adjacency.get(current, set()), reverse=True)
+                if neighbor in remaining and neighbor not in visited
+            )
+
+        return sorted(component)
+
+    def _select_duplicate_primary(
+        self,
+        component: list[int],
+        titles: list[ResolvedTitle],
+    ) -> int:
+        return sorted(
+            component,
+            key=lambda index: (
+                self._CONFIDENCE_ORDER.get(titles[index].title_confidence, 99),
+                -len(normalize_title(titles[index].title)),
+                titles[index].title.casefold(),
+            ),
+        )[0]
+
+    def _ordered_pair(self, left_index: int, right_index: int) -> tuple[int, int]:
+        return (left_index, right_index) if left_index < right_index else (right_index, left_index)
+
     def _duplicate_reasons(self, left: ResolvedTitle, right: ResolvedTitle) -> list[str]:
-        reasons: list[str] = []
         normalized_left = normalize_title(left.title)
         normalized_right = normalize_title(right.title)
         if not normalized_left or not normalized_right:
-            return reasons
-        if normalized_left == normalized_right:
-            reasons.append("normalized title collision")
-            reasons.append("metadata-backed title similarity")
-            return reasons
+            return []
 
-        if normalized_left in normalized_right or normalized_right in normalized_left:
-            reasons.append("metadata-backed title similarity")
-        similarity = title_similarity(left.title, right.title)
-        if similarity >= 0.70:
-            reasons.append("metadata-backed title similarity")
+        anchor_reasons: list[str] = []
+        supporting_reasons: list[str] = []
+        if normalized_left == normalized_right:
+            anchor_reasons.extend(
+                [
+                    "metadata-backed title similarity",
+                    "normalized title collision",
+                ]
+            )
+        elif normalized_left in normalized_right or normalized_right in normalized_left:
+            anchor_reasons.append("metadata-backed title similarity")
+        elif title_similarity(left.title, right.title) >= 0.70:
+            anchor_reasons.append("metadata-backed title similarity")
+
         if left.launcher and right.launcher and left.launcher == right.launcher:
-            reasons.append("shared launcher ancestry")
-        return reasons
+            supporting_reasons.append("shared launcher ancestry")
+
+        if not anchor_reasons:
+            return []
+
+        return sorted(set(anchor_reasons + supporting_reasons))

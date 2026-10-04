@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Reduced duplicate-title verification with conservative character/bigram indexes and cached character-count upper bounds. Preserve substring and fuzzy-match recall without dense-bucket cutoffs.
+- Treat launcher ancestry as supporting duplicate evidence, and require every related title to match its selected primary directly.
+
 - Reworked `scan` to render a source-status matrix and final summary instead of exiting silently.
 - Rebuilt `report`, `titles`, and `sessions` on shared snapshot loaders and removed the remaining stub paths.
 - Reintegrated `inspect`, `sources`, and `export` onto the same recovered truth layer used by the primary commands.
