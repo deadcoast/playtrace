@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -473,6 +473,10 @@ def _seed_titles_database(db_path: Path, titles: list[str]) -> None:
 
 
 def _seed_sessions_database(db_path: Path) -> None:
+    # Relative to now so the 7-day and 365-day windows stay meaningful over time.
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    recent_start = now - timedelta(days=1)
+    old_start = now - timedelta(days=60)
     db = Database(db_path)
     db.bootstrap()
     db.replace_titles(
@@ -488,8 +492,8 @@ def _seed_sessions_database(db_path: Path) -> None:
                 title_id="title:recent",
                 exe_id="exe:recent",
                 user_sid="S-1-5-21-demo",
-                started_at=datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc),
-                ended_at=datetime(2026, 4, 16, 12, 20, 0, tzinfo=timezone.utc),
+                started_at=recent_start,
+                ended_at=recent_start + timedelta(minutes=20),
                 duration_seconds=1200,
                 confidence=RuntimeConfidence.EXACT,
                 evidence_sources=["security_log"],
@@ -499,8 +503,8 @@ def _seed_sessions_database(db_path: Path) -> None:
                 title_id="title:old",
                 exe_id="exe:old",
                 user_sid="S-1-5-21-demo",
-                started_at=datetime(2026, 2, 1, 12, 0, 0, tzinfo=timezone.utc),
-                ended_at=datetime(2026, 2, 1, 12, 20, 0, tzinfo=timezone.utc),
+                started_at=old_start,
+                ended_at=old_start + timedelta(minutes=20),
                 duration_seconds=1200,
                 confidence=RuntimeConfidence.EXACT,
                 evidence_sources=["security_log"],
