@@ -42,6 +42,3 @@ class ConfigModel:
             if not isinstance(key, str) or not isinstance(value, str):
                 raise TypeError("classification_overrides must map strings to strings")
 
-
-# Backward-compatible alias for the spec bundle's original public name.
-Config_Model = ConfigModel
