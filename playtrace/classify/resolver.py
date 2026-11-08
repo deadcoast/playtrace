@@ -42,6 +42,7 @@ class TitleResolver:
         ConfidenceLevel.LOW: 2,
         ConfidenceLevel.UNKNOWN: 3,
     }
+
     def resolve(
         self,
         executables: list[ExecutableIdentity],
@@ -393,7 +394,7 @@ class TitleResolver:
                     primary_title=primary.title,
                     related_title_ids=[title.title_id for title in related],
                     related_titles=[title.title for title in related],
-                    reasons=sorted(set(reasons)),
+                    reasons=reasons,
                 )
             )
             remaining.difference_update({primary_index, *related_indexes})

@@ -1,7 +1,7 @@
 """Compare full duplicate detection with a saved baseline resolver module.
 
 Example (from the repository root):
-    git show main:playtrace/classify/resolver.py > /tmp/baseline_resolver.py
+    git show 609ce2a~1:playtrace/classify/resolver.py > /tmp/baseline_resolver.py
     uv run python tools/benchmark_duplicate_detection.py --baseline /tmp/baseline_resolver.py
 
 Synthetic workloads are reproducible, not a substitute for live-data profiling.
