@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path, PureWindowsPath
-
-import playtrace.normalize.pathing as pathing_module
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+import playtrace.normalize.pathing as pathing_module
 from playtrace.normalize.pathing import PathNormalizer
 
 
@@ -54,30 +52,35 @@ def test_path_normalizer_expands_environment_variables_case_insensitively(
 
 
 def test_path_normalizer_resolves_relative_paths_to_absolute(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.chdir(tmp_path)
+    # Pin the working directory to a Windows path so the test is host-independent.
+    monkeypatch.setattr(pathing_module.os, "getcwd", lambda: r"D:\Work\Library")
 
-    expected = str(PureWindowsPath(tmp_path) / "Games" / "Balatro.exe").lower()
+    assert PathNormalizer().normalize(r"Games\Balatro.exe") == r"d:\work\library\games\balatro.exe"
 
-    assert PathNormalizer().normalize(r"Games\Balatro.exe") == expected
+
+def test_path_normalizer_leaves_relative_paths_unanchored_without_windows_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A POSIX working directory has no drive, so it cannot anchor a Windows path.
+    monkeypatch.setattr(pathing_module.os, "getcwd", lambda: "/home/analyst")
+
+    assert PathNormalizer().normalize(r"Games\Balatro.exe") == r"games\balatro.exe"
 
 
 def test_path_normalizer_does_not_depend_on_host_os_path_helpers(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(pathing_module.os, "getcwd", lambda: r"D:\Work\Library")
     monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
     monkeypatch.setattr(pathing_module.os.path, "expandvars", lambda value: value)
     monkeypatch.setattr(pathing_module.os.path, "abspath", lambda value: f"/workspace/{value}")
 
-    expected = str(PureWindowsPath(tmp_path) / "Games" / "Balatro.exe").lower()
     normalizer = PathNormalizer()
 
     assert normalizer.normalize(r"%ProgramFiles%\Steam\Steam.exe") == r"c:\program files\steam\steam.exe"
-    assert normalizer.normalize(r"Games\Balatro.exe") == expected
+    assert normalizer.normalize(r"Games\Balatro.exe") == r"d:\work\library\games\balatro.exe"
 
 
 def test_path_normalizer_returns_none_for_none_or_empty() -> None:

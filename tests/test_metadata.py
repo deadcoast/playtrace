@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 import tempfile
 from pathlib import Path
 
@@ -9,6 +11,10 @@ from hypothesis import strategies as st
 from playtrace.normalize.metadata import ExecutableMetadata, MetadataExtractor
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "pe"
+# Authenticode signer extraction needs the Windows CryptoAPI via pywin32. Elsewhere the
+# extractor reports no signer, but the version-info assertions still run.
+AUTHENTICODE_AVAILABLE = sys.platform == "win32" and importlib.util.find_spec("win32crypt") is not None
+FIXTURE_SIGNER = "Python Software Foundation" if AUTHENTICODE_AVAILABLE else None
 EMPTY_METADATA = ExecutableMetadata(
     product_name=None,
     original_filename=None,
@@ -64,7 +70,7 @@ def test_metadata_extractor_reads_signed_pe_with_version_info() -> None:
         original_filename="python.exe",
         file_description="Python",
         company_name="Python Software Foundation",
-        signer="Python Software Foundation",
+        signer=FIXTURE_SIGNER,
     )
 
 
@@ -88,7 +94,7 @@ def test_metadata_extractor_reads_signed_pe_without_version_info() -> None:
         original_filename=None,
         file_description=None,
         company_name=None,
-        signer="Python Software Foundation",
+        signer=FIXTURE_SIGNER,
     )
 
 
