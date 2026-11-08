@@ -200,5 +200,3 @@ class ConfigModel:
             except ValueError as exc:
                 raise ValueError(f"default_sources contains invalid source: {source}") from exc
 
-
-Config_Model = ConfigModel
