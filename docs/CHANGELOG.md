@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Normalized parser signatures, ingest sample timestamp parsing, and shared inspection model typing so the refreshed `docs/ERRORS.json` snapshot is clean after a full `mypy` run.
+- `MigrationEngine` now records each applied version with a parameterized insert inside the same transaction as the migration DDL, instead of interpolating values into the SQL script.
+- PE metadata and path normalization tests no longer depend on the host OS, Windows CryptoAPI availability, or a specific working directory.
 
 ## [0.1.0] - 2026-04-14
 
