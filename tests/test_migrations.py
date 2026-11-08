@@ -195,3 +195,27 @@ def test_migration_engine_applies_multiple_migrations_in_sequence(tmp_path: Path
         }
 
     assert {"alpha", "beta", "gamma"} <= tables
+
+
+class QuotedDescriptionMigrationEngine(MigrationEngine):
+    MIGRATIONS = [
+        Migration(
+            version=2,
+            description="add 'alpha'; DROP TABLE schema_version; --",
+            sql="CREATE TABLE alpha (id INTEGER PRIMARY KEY);",
+        ),
+    ]
+
+
+def test_migration_engine_stores_description_verbatim(tmp_path: Path) -> None:
+    db = Database(tmp_path / "quoted.db")
+    _seed_version(db, 1)
+
+    QuotedDescriptionMigrationEngine(db).apply_migrations(2)
+
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT description FROM schema_version WHERE version = 2"
+        ).fetchone()
+
+    assert row["description"] == "add 'alpha'; DROP TABLE schema_version; --"

@@ -75,17 +75,22 @@ class MigrationEngine:
             conn.commit()
 
     def _apply_migration(self, migration: Migration) -> None:
-        script = (
-            "BEGIN;\n"
-            f"{migration.sql.rstrip().rstrip(';')};\n"
-            "INSERT INTO schema_version (version, applied_at, description) VALUES "
-            f"({migration.version}, '{self._escape_sql(self._timestamp())}', '{self._escape_sql(migration.description)}');\n"
-            "COMMIT;"
-        )
+        # executescript() cannot bind parameters, so the DDL runs as a script inside an
+        # explicit transaction that is left open; the version row is then inserted with
+        # bound parameters and both are committed (or rolled back) together.
+        script = f"BEGIN;\n{migration.sql.rstrip().rstrip(';')};\n"
 
         with self.db.connect() as conn:
             try:
                 conn.executescript(script)
+                conn.execute(
+                    """
+                    INSERT INTO schema_version (version, applied_at, description)
+                    VALUES (?, ?, ?)
+                    """,
+                    (migration.version, self._timestamp(), migration.description),
+                )
+                conn.commit()
             except sqlite3.DatabaseError:
                 conn.rollback()
                 raise
@@ -95,7 +100,5 @@ class MigrationEngine:
         return sorted(self.MIGRATIONS, key=lambda migration: migration.version)
 
     def _timestamp(self) -> str:
-        return Clock.format_iso8601(Clock.utc_now()) or Clock.utc_now().isoformat()
-
-    def _escape_sql(self, value: str) -> str:
-        return value.replace("'", "''")
+        now = Clock.utc_now()
+        return Clock.format_iso8601(now) or now.isoformat()
